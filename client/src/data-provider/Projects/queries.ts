@@ -15,14 +15,19 @@ export const useProjectsInfiniteQuery = (
 
   return useInfiniteQuery<ProjectListResponse>({
     queryKey: [QueryKeys.projects, { sortBy, sortDirection, search, limit }],
-    queryFn: ({ pageParam }) =>
-      dataService.listProjects({
+    queryFn: async ({ pageParam }) => {
+      const res = await dataService.listProjects({
         sortBy,
         sortDirection,
         search,
         limit,
         cursor: pageParam?.toString(),
-      }),
+      });
+      return {
+        projects: Array.isArray(res?.projects) ? res.projects : [],
+        nextCursor: res?.nextCursor ?? null,
+      };
+    },
     getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
     keepPreviousData: true,
     staleTime: 5 * 60 * 1000,

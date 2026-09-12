@@ -81,7 +81,7 @@ export default function SharedLinks() {
       return [];
     }
 
-    return data.pages.flatMap((page) => page.links.filter(Boolean));
+    return data.pages.flatMap((page) => (Array.isArray(page?.links) ? page.links.filter(Boolean) : []));
   }, [data?.pages]);
 
   const sorting = useMemo<SortingState>(

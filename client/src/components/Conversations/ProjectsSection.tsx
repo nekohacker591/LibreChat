@@ -389,7 +389,13 @@ const ProjectsSection = ({ toggleNav, isAuthenticated }: ProjectsSectionProps) =
     { enabled: isAuthenticated, staleTime: 30000, cacheTime: 300000 },
   );
 
-  const projects = useMemo(() => data?.pages.flatMap((page) => page.projects) ?? [], [data?.pages]);
+  const projects = useMemo(
+    () =>
+      data?.pages
+        ?.flatMap((page) => (Array.isArray(page?.projects) ? page.projects : []))
+        ?.filter((p): p is TChatProject => p != null && typeof p === 'object' && '_id' in p) ?? [],
+    [data?.pages],
+  );
   const hasMore = (data?.pages[data.pages.length - 1]?.nextCursor ?? null) != null;
 
   /**

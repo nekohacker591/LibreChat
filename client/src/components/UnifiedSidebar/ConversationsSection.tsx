@@ -77,7 +77,11 @@ const ConversationsSection = memo(() => {
   });
 
   const conversations = useMemo(() => {
-    return data ? data.pages.flatMap((page) => page.conversations) : [];
+    return data
+      ? data.pages
+          .flatMap((page) => (Array.isArray(page?.conversations) ? page.conversations : []))
+          .filter(Boolean)
+      : [];
   }, [data]);
 
   /** Pins are fetched on their own so one older than the first page of the chats list

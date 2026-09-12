@@ -260,7 +260,53 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
         }
 
-        // 14. Token config
+        // 14b. Projects
+        if (uri.startsWith("/api/projects")) {
+            JSONObject res = new JSONObject();
+            res.put("projects", new JSONArray());
+            res.put("nextCursor", JSONObject.NULL);
+            return newFixedLengthResponse(Response.Status.OK, "application/json", res.toString());
+        }
+
+        // 14c. Skills
+        if (uri.startsWith("/api/skills")) {
+            JSONObject res = new JSONObject();
+            res.put("skills", new JSONArray());
+            res.put("has_more", false);
+            res.put("after", JSONObject.NULL);
+            return newFixedLengthResponse(Response.Status.OK, "application/json", res.toString());
+        }
+
+        // 14d. Schedules
+        if (uri.startsWith("/api/schedules")) {
+            JSONObject res = new JSONObject();
+            res.put("schedules", new JSONArray());
+            return newFixedLengthResponse(Response.Status.OK, "application/json", res.toString());
+        }
+
+        // 14e. Share
+        if (uri.startsWith("/api/share")) {
+            JSONObject res = new JSONObject();
+            res.put("links", new JSONArray());
+            res.put("nextCursor", JSONObject.NULL);
+            res.put("hasNextPage", false);
+            return newFixedLengthResponse(Response.Status.OK, "application/json", res.toString());
+        }
+
+        // 14f. MCP
+        if (uri.startsWith("/api/mcp")) {
+            if (uri.contains("/tools")) {
+                return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"servers\":{}}");
+            }
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{}");
+        }
+
+        // 14g. Categories, Tags, Code Environments
+        if (uri.startsWith("/api/categories") || uri.startsWith("/api/tags") || uri.startsWith("/api/code-environments")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
+        }
+
+        // 14h. Token config
         if (uri.equals("/api/endpoints/token-config")) {
             return newFixedLengthResponse(Response.Status.OK, "application/json", "{}");
         }

@@ -64,7 +64,11 @@ export const useSkillsInfiniteQuery = (
       if (typeof pageParam === 'string' && pageParam.length > 0) {
         request.cursor = pageParam;
       }
-      return dataService.listSkills(request);
+      return dataService.listSkills(request).then((res) => ({
+        skills: Array.isArray(res?.skills) ? res.skills : [],
+        has_more: res?.has_more === true,
+        after: res?.after ?? null,
+      }));
     },
     {
       getNextPageParam: (lastPage) =>

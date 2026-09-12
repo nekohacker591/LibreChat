@@ -31,7 +31,13 @@ export default function SkillsSidePanel({ className }: SkillsSidePanelProps) {
   const listQuery = useSkillsInfiniteQuery({ search: debouncedSearch || undefined, limit: 20 });
 
   const pages = useMemo(() => listQuery.data?.pages ?? [], [listQuery.data]);
-  const skills = useMemo(() => pages.flatMap((page) => page.skills), [pages]);
+  const skills = useMemo(
+    () =>
+      pages
+        .flatMap((page) => (Array.isArray(page?.skills) ? page.skills : []))
+        .filter((s) => s != null && typeof s === 'object' && '_id' in s),
+    [pages],
+  );
 
   const lastPage = pages[pages.length - 1];
   const nextCursor = lastPage?.has_more === true ? lastPage.after : null;

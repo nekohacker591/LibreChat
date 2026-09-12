@@ -93,7 +93,10 @@ export default function ProjectWorkspace() {
   );
 
   const conversations = useMemo(
-    () => data?.pages.flatMap((page) => page.conversations) ?? [],
+    () =>
+      data?.pages
+        ?.flatMap((page) => (Array.isArray(page?.conversations) ? page.conversations : []))
+        .filter(Boolean) ?? [],
     [data?.pages],
   );
 
