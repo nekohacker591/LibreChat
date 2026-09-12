@@ -110,6 +110,12 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
         return rows > 0;
     }
 
+    public synchronized void clearAllConversations() {
+        SQLiteDatabase db = getWritableDatabase();
+        db.delete(TABLE_MESSAGES, null, null);
+        db.delete(TABLE_CONVERSATIONS, null, null);
+    }
+
     public synchronized JSONObject getConversationJson(String conversationId) {
         SQLiteDatabase db = getReadableDatabase();
         Cursor c = db.query(TABLE_CONVERSATIONS, null, "conversation_id = ?", new String[]{conversationId}, null, null, null);

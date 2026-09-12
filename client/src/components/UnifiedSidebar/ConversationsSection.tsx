@@ -59,7 +59,7 @@ const ConversationsSection = memo(() => {
   const computedHasNextPage = useMemo(() => {
     if (data?.pages && data.pages.length > 0) {
       const lastPage: ConversationListResponse = data.pages[data.pages.length - 1];
-      return lastPage.nextCursor !== null;
+      return Boolean(lastPage?.nextCursor);
     }
     return false;
   }, [data?.pages]);

@@ -106,7 +106,7 @@ export default function ProjectWorkspace() {
       return false;
     }
     const lastPage: ConversationListResponse = pages[pages.length - 1];
-    return lastPage.nextCursor !== null;
+    return Boolean(lastPage?.nextCursor);
   }, [data?.pages]);
 
   const startProjectChat = useCallback(() => {

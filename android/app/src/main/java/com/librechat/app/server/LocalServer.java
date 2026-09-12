@@ -35,8 +35,22 @@ public class LocalServer extends NanoHTTPD {
     private final Context context;
     private final LocalDatabaseHelper dbHelper;
     private final OkHttpClient httpClient;
-    private JSONArray cachedModels = null;
+    private volatile JSONArray cachedModels = getDefaultModels();
+    private volatile boolean isFetchingModels = false;
     private long lastModelsFetchTime = 0;
+
+    private static JSONArray getDefaultModels() {
+        JSONArray arr = new JSONArray();
+        arr.put("gpt-4o");
+        arr.put("gpt-4o-mini");
+        arr.put("claude-3-5-sonnet-20241022");
+        arr.put("claude-3-5-haiku-20241022");
+        arr.put("gemini-2.0-flash-exp");
+        arr.put("gemini-1.5-flash");
+        arr.put("llama-3.3-70b-instruct");
+        arr.put("deepseek-chat");
+        return arr;
+    }
 
     public static class ActiveGeneration {
         final String streamId;
@@ -459,16 +473,56 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"count\":1}");
         }
 
-        // 16. Conversations List
+        // 16. Conversations List & Delete
         if (uri.equals("/api/convos") || uri.equals("/api/convos/")) {
+            if (Method.DELETE.equals(method)) {
+                if (postData != null) {
+                    try {
+                        JSONObject delReq = new JSONObject(postData);
+                        JSONObject arg = delReq.optJSONObject("arg");
+                        if (arg != null) {
+                            String cid = arg.optString("conversationId", "");
+                            if (!cid.isEmpty()) {
+                                dbHelper.deleteConversation(cid);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+                return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"message\":\"Deleted\"}");
+            }
             if (Method.GET.equals(method)) {
+                Map<String, String> parms = session.getParms();
+                boolean isPinned = parms != null && "true".equalsIgnoreCase(parms.get("pinned"));
+                boolean isArchived = parms != null && "true".equalsIgnoreCase(parms.get("isArchived"));
+
                 JSONObject res = new JSONObject();
-                res.put("conversations", dbHelper.getConversationsJson());
+                if (isPinned || isArchived) {
+                    res.put("conversations", new JSONArray());
+                } else {
+                    res.put("conversations", dbHelper.getConversationsJson());
+                }
                 res.put("pages", 1);
                 res.put("pageNumber", 1);
                 res.put("pageSize", 25);
+                res.put("nextCursor", JSONObject.NULL);
                 return newFixedLengthResponse(Response.Status.OK, "application/json", res.toString());
             }
+        }
+
+        // 16b. Delete All / Clear
+        if (uri.equals("/api/convos/all") || uri.equals("/api/convos/clear")) {
+            dbHelper.clearAllConversations();
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"message\":\"All conversations deleted\"}");
+        }
+
+        // 16c. Archive routes
+        if (uri.startsWith("/api/convos/archive")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"success\":true}");
+        }
+
+        // 16d. Pin routes
+        if (uri.startsWith("/api/convos/pin")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"success\":true}");
         }
 
         // 17. Single Conversation (GET or DELETE /api/convos/:id)
@@ -996,50 +1050,46 @@ public class LocalServer extends NanoHTTPD {
 
     private JSONArray fetchModelsFromGateway() {
         long now = System.currentTimeMillis();
-        if (cachedModels != null && (now - lastModelsFetchTime) < 300000) { // 5 min cache
-            return cachedModels;
-        }
+        if ((now - lastModelsFetchTime) > 300000 && !isFetchingModels) {
+            isFetchingModels = true;
+            new Thread(() -> {
+                try {
+                    Request req = new Request.Builder()
+                            .url("https://api.llmgateway.io/v1/models")
+                            .addHeader("x-source", "devpass-code")
+                            .get()
+                            .build();
 
-        JSONArray result = new JSONArray();
-        try {
-            Request req = new Request.Builder()
-                    .url("https://api.llmgateway.io/v1/models")
-                    .addHeader("x-source", "devpass-code")
-                    .get()
-                    .build();
-
-            try (okhttp3.Response resp = httpClient.newCall(req).execute()) {
-                if (resp.isSuccessful() && resp.body() != null) {
-                    String bodyStr = resp.body().string();
-                    JSONObject json = new JSONObject(bodyStr);
-                    JSONArray data = json.optJSONArray("data");
-                    if (data != null) {
-                        for (int i = 0; i < data.length(); i++) {
-                            JSONObject m = data.getJSONObject(i);
-                            String id = m.optString("id");
-                            if (!id.isEmpty()) {
-                                result.put(id);
+                    try (okhttp3.Response resp = httpClient.newCall(req).execute()) {
+                        if (resp.isSuccessful() && resp.body() != null) {
+                            String bodyStr = resp.body().string();
+                            JSONObject json = new JSONObject(bodyStr);
+                            JSONArray data = json.optJSONArray("data");
+                            if (data != null && data.length() > 0) {
+                                JSONArray result = new JSONArray();
+                                for (int i = 0; i < data.length(); i++) {
+                                    JSONObject m = data.getJSONObject(i);
+                                    String id = m.optString("id");
+                                    if (!id.isEmpty()) {
+                                        result.put(id);
+                                    }
+                                }
+                                if (result.length() > 0) {
+                                    cachedModels = result;
+                                    lastModelsFetchTime = System.currentTimeMillis();
+                                }
                             }
                         }
                     }
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to background fetch models from gateway", e);
+                } finally {
+                    isFetchingModels = false;
                 }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to fetch models from gateway", e);
+            }).start();
         }
 
-        if (result.length() == 0) {
-            result.put("gpt-4o");
-            result.put("gpt-4o-mini");
-            result.put("claude-3-5-sonnet-20241022");
-            result.put("claude-3-5-haiku-20241022");
-            result.put("gemini-2.0-flash-exp");
-            result.put("llama-3.3-70b-instruct");
-        }
-
-        cachedModels = result;
-        lastModelsFetchTime = now;
-        return result;
+        return cachedModels;
     }
 
     private Response serveStatic(String uri) {
