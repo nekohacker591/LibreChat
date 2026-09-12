@@ -18,10 +18,10 @@ android {
 
     signingConfigs {
         release {
-            storeFile file('test-release-key.keystore')
-            storePassword 'librechat123'
-            keyAlias 'librechat-test-key'
-            keyPassword 'librechat123'
+            storeFile file('my-release-key.jks')
+            storePassword 'librechat2026'
+            keyAlias 'my-alias'
+            keyPassword 'librechat2026'
             v1SigningEnabled true
             v2SigningEnabled true
         }
