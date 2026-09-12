@@ -163,9 +163,22 @@ public class LocalServer extends NanoHTTPD {
             user.put("name", "Local User");
             user.put("username", "user");
             user.put("email", "user@librechat.local");
+            user.put("avatar", "");
             user.put("role", "USER");
+            user.put("provider", "local");
             user.put("plugins", new JSONArray());
             return newFixedLengthResponse(Response.Status.OK, "application/json", user.toString());
+        }
+
+        // 3b. User Settings & Preferences (pinned-order, favorites, tool-favorites MUST return JSON array)
+        if (uri.startsWith("/api/user/settings") || uri.startsWith("/api/favorites")) {
+            if (Method.POST.equals(method) || Method.PUT.equals(method) || Method.PATCH.equals(method)) {
+                return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
+            }
+            if (uri.contains("pinned-order") || uri.contains("favorites") || uri.contains("tool")) {
+                return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
+            }
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{}");
         }
 
         // 4. Endpoints
@@ -203,11 +216,7 @@ public class LocalServer extends NanoHTTPD {
 
         // 7. Prompts
         if (uri.startsWith("/api/prompts")) {
-            JSONObject prompts = new JSONObject();
-            prompts.put("prompts", new JSONArray());
-            prompts.put("pages", 1);
-            prompts.put("pageNumber", 1);
-            return newFixedLengthResponse(Response.Status.OK, "application/json", prompts.toString());
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
         }
 
         // 8. Banner
@@ -230,14 +239,25 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
         }
 
-        // 12. Agents & Assistants
-        if (uri.startsWith("/api/agents") || uri.startsWith("/api/assistants")) {
-            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"data\":[]}");
+        // 12. Actions
+        if (uri.startsWith("/api/actions")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
         }
 
-        // 13. Files
+        // 13. Agents & Assistants
+        if (uri.startsWith("/api/agents") || uri.startsWith("/api/assistants")) {
+            if (uri.contains("/active")) {
+                return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"activeJobIds\":[]}");
+            }
+            if (uri.contains("/categories") || uri.contains("/tools")) {
+                return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
+            }
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"data\":[],\"has_more\":false}");
+        }
+
+        // 14. Files
         if (uri.startsWith("/api/files")) {
-            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"files\":[]}");
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
         }
 
         // 14. Token config

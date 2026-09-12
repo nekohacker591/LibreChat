@@ -402,7 +402,7 @@ const PinnedSection = ({
   /** Stored keys order the entries they still resolve to; the rest append in
    *  natural order, so a stale order never hides an item. */
   const orderedEntries = useMemo<PinnedEntry[]>(() => {
-    if (!storedOrder || storedOrder.length === 0) {
+    if (!storedOrder || !Array.isArray(storedOrder) || storedOrder.length === 0) {
       return naturalEntries;
     }
     const byKey = new Map(naturalEntries.map((entry) => [entry.key, entry]));
