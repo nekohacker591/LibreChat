@@ -200,3 +200,10 @@ scripts/activity-labels/results/
 
 .gradle/
 android/.gradle/
+
+*.apk
+local.properties
+.gradle/
+android/local.properties
+android/app/build/
+android/build/

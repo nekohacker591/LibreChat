@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
@@ -36,6 +37,39 @@ public class LocalServer extends NanoHTTPD {
     private final OkHttpClient httpClient;
     private JSONArray cachedModels = null;
     private long lastModelsFetchTime = 0;
+
+    public static class ActiveGeneration {
+        final String streamId;
+        final String conversationId;
+        final String userMessageId;
+        final String responseMessageId;
+        final String parentMessageId;
+        final String model;
+        final String endpoint;
+        final String prompt;
+        final String apiKey;
+        final long createdAt;
+        volatile boolean aborted = false;
+        volatile Call activeCall = null;
+        volatile PipedOutputStream streamOut = null;
+
+        public ActiveGeneration(String streamId, String conversationId, String userMessageId,
+                                String responseMessageId, String parentMessageId,
+                                String model, String endpoint, String prompt, String apiKey, long createdAt) {
+            this.streamId = streamId;
+            this.conversationId = conversationId;
+            this.userMessageId = userMessageId;
+            this.responseMessageId = responseMessageId;
+            this.parentMessageId = parentMessageId;
+            this.model = model;
+            this.endpoint = endpoint;
+            this.prompt = prompt;
+            this.apiKey = apiKey;
+            this.createdAt = createdAt;
+        }
+    }
+
+    private final ConcurrentHashMap<String, ActiveGeneration> activeGenerations = new ConcurrentHashMap<>();
 
     public LocalServer(Context context, int port) {
         super(port);
@@ -85,7 +119,7 @@ public class LocalServer extends NanoHTTPD {
 
     private Response handleApi(IHTTPSession session, String uri, Method method) throws Exception {
         Map<String, String> body = new HashMap<>();
-        if (Method.POST.equals(method) || Method.PUT.equals(method)) {
+        if (Method.POST.equals(method) || Method.PUT.equals(method) || Method.PATCH.equals(method)) {
             session.parseBody(body);
         }
         String postData = body.get("postData");
@@ -139,7 +173,7 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", config.toString());
         }
 
-        // 2. Auth: Refresh and Login
+        // 2. Auth: Refresh, Login, Logout
         if (uri.equals("/api/auth/refresh") || uri.equals("/api/auth/login")) {
             JSONObject authResp = new JSONObject();
             authResp.put("token", "local-session-token-librechat");
@@ -153,6 +187,9 @@ public class LocalServer extends NanoHTTPD {
             user.put("plugins", new JSONArray());
             authResp.put("user", user);
             return newFixedLengthResponse(Response.Status.OK, "application/json", authResp.toString());
+        }
+        if (uri.equals("/api/auth/logout")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"message\":\"Logged out\"}");
         }
 
         // 3. User profile
@@ -170,7 +207,7 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", user.toString());
         }
 
-        // 3b. User Settings & Preferences (pinned-order, favorites, tool-favorites MUST return JSON array)
+        // 3b. User Settings & Preferences
         if (uri.startsWith("/api/user/settings") || uri.startsWith("/api/favorites")) {
             if (Method.POST.equals(method) || Method.PUT.equals(method) || Method.PATCH.equals(method)) {
                 return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
@@ -244,7 +281,82 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
         }
 
-        // 13. Agents & Assistants
+        // ----------------------------------------------------
+        // RESUMABLE GENERATION PROTOCOL (Chat Routes)
+        // MUST BE EVALUATED BEFORE GENERIC /api/agents HANDLER
+        // ----------------------------------------------------
+
+        // A. Abort running generation
+        if (uri.equals("/api/agents/chat/abort") && Method.POST.equals(method)) {
+            JSONObject abortReq = new JSONObject(postData != null ? postData : "{}");
+            String streamId = abortReq.optString("streamId", "");
+            String convoId = abortReq.optString("conversationId", "");
+            ActiveGeneration gen = null;
+            if (!streamId.isEmpty()) {
+                gen = activeGenerations.get(streamId);
+            }
+            if (gen == null && !convoId.isEmpty()) {
+                for (ActiveGeneration g : activeGenerations.values()) {
+                    if (convoId.equals(g.conversationId) && !g.aborted) {
+                        gen = g;
+                        break;
+                    }
+                }
+            }
+            if (gen != null) {
+                gen.aborted = true;
+                if (gen.activeCall != null) {
+                    gen.activeCall.cancel();
+                }
+            }
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"success\":true,\"aborted\":true}");
+        }
+
+        // B. Stream status
+        if (uri.startsWith("/api/agents/chat/status/") && Method.GET.equals(method)) {
+            String convoId = uri.substring("/api/agents/chat/status/".length());
+            try {
+                convoId = URLDecoder.decode(convoId, StandardCharsets.UTF_8.name());
+            } catch (Exception ignored) {}
+            ActiveGeneration active = null;
+            for (ActiveGeneration g : activeGenerations.values()) {
+                if (convoId.equals(g.conversationId) && !g.aborted) {
+                    active = g;
+                    break;
+                }
+            }
+            JSONObject statusResp = new JSONObject();
+            if (active != null) {
+                statusResp.put("active", true);
+                statusResp.put("status", "running");
+                statusResp.put("streamId", active.streamId);
+                statusResp.put("createdAt", active.createdAt);
+                statusResp.put("generationProtocolVersion", 2);
+            } else {
+                statusResp.put("active", false);
+                statusResp.put("generationProtocolVersion", 2);
+            }
+            return newFixedLengthResponse(Response.Status.OK, "application/json", statusResp.toString());
+        }
+
+        // C. SSE Stream Connection
+        if (uri.startsWith("/api/agents/chat/stream/") && Method.GET.equals(method)) {
+            return handleStreamConnection(uri);
+        }
+
+        // D. Start generation (POST /api/agents/chat/:endpoint)
+        if (uri.startsWith("/api/agents/chat/") && Method.POST.equals(method)) {
+            return handleStartGeneration(uri, postData);
+        }
+
+        // E. Legacy ask / chat routes
+        if (uri.startsWith("/api/ask") || uri.startsWith("/api/chat")) {
+            return handleChatStream(postData);
+        }
+
+        // ----------------------------------------------------
+        // Generic Agents & Assistants (fallback after chat routes)
+        // ----------------------------------------------------
         if (uri.startsWith("/api/agents") || uri.startsWith("/api/assistants")) {
             if (uri.contains("/active")) {
                 return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"activeJobIds\":[]}");
@@ -252,7 +364,38 @@ public class LocalServer extends NanoHTTPD {
             if (uri.contains("/categories") || uri.contains("/tools")) {
                 return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
             }
-            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"data\":[],\"has_more\":false}");
+            return newFixedLengthResponse(Response.Status.OK, "application/json",
+                    "{\"object\":\"list\",\"data\":[],\"has_more\":false,\"first_id\":null,\"last_id\":null}");
+        }
+
+        // 13b. Title Generation (/api/convos/gen_title/:conversationId)
+        if (uri.startsWith("/api/convos/gen_title/")) {
+            String convoId = uri.substring("/api/convos/gen_title/".length());
+            try {
+                convoId = URLDecoder.decode(convoId, StandardCharsets.UTF_8.name());
+            } catch (Exception ignored) {}
+            JSONObject convo = dbHelper.getConversationJson(convoId);
+            JSONObject res = new JSONObject();
+            res.put("title", convo != null ? convo.optString("title", "New Chat") : "New Chat");
+            return newFixedLengthResponse(Response.Status.OK, "application/json", res.toString());
+        }
+
+        // 13c. Update Conversation (/api/convos/update)
+        if (uri.equals("/api/convos/update") || uri.startsWith("/api/convos/update")) {
+            if (postData != null) {
+                try {
+                    JSONObject updateReq = new JSONObject(postData);
+                    JSONObject arg = updateReq.optJSONObject("arg");
+                    if (arg != null) {
+                        String cid = arg.optString("conversationId", "");
+                        String newTitle = arg.optString("title", "");
+                        if (!cid.isEmpty() && !newTitle.isEmpty()) {
+                            dbHelper.updateConversationTitle(cid, newTitle);
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"success\":true}");
         }
 
         // 14. Files
@@ -316,30 +459,45 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"count\":1}");
         }
 
-        // 16. Conversations
-        if (uri.equals("/api/convos")) {
+        // 16. Conversations List
+        if (uri.equals("/api/convos") || uri.equals("/api/convos/")) {
             if (Method.GET.equals(method)) {
                 JSONObject res = new JSONObject();
                 res.put("conversations", dbHelper.getConversationsJson());
                 res.put("pages", 1);
                 res.put("pageNumber", 1);
+                res.put("pageSize", 25);
                 return newFixedLengthResponse(Response.Status.OK, "application/json", res.toString());
             }
         }
 
-        // 17. Delete conversation
-        if (uri.startsWith("/api/convos/") && Method.DELETE.equals(method)) {
+        // 17. Single Conversation (GET or DELETE /api/convos/:id)
+        if (uri.startsWith("/api/convos/")) {
             String convoId = uri.substring("/api/convos/".length());
-            dbHelper.deleteConversation(convoId);
-            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"message\":\"Deleted\"}");
+            try {
+                convoId = URLDecoder.decode(convoId, StandardCharsets.UTF_8.name());
+            } catch (Exception ignored) {}
+            if (Method.DELETE.equals(method)) {
+                dbHelper.deleteConversation(convoId);
+                return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"message\":\"Deleted\"}");
+            } else if (Method.GET.equals(method)) {
+                JSONObject convo = dbHelper.getConversationJson(convoId);
+                if (convo != null) {
+                    return newFixedLengthResponse(Response.Status.OK, "application/json", convo.toString());
+                } else {
+                    return newFixedLengthResponse(Response.Status.NOT_FOUND, "application/json", "{\"error\":\"Conversation not found\"}");
+                }
+            }
         }
 
-        // 18. Messages
+        // 18. Messages (/api/messages/:conversationId) -> returns array directly
         if (uri.startsWith("/api/messages/")) {
             String convoId = uri.substring("/api/messages/".length());
-            JSONObject res = new JSONObject();
-            res.put("messages", dbHelper.getMessagesJson(convoId));
-            return newFixedLengthResponse(Response.Status.OK, "application/json", res.toString());
+            try {
+                convoId = URLDecoder.decode(convoId, StandardCharsets.UTF_8.name());
+            } catch (Exception ignored) {}
+            JSONArray msgs = dbHelper.getMessagesJson(convoId);
+            return newFixedLengthResponse(Response.Status.OK, "application/json", msgs.toString());
         }
 
         // 19. Keys
@@ -365,12 +523,316 @@ public class LocalServer extends NanoHTTPD {
             }
         }
 
-        // 20. Chat Streaming Proxy (/api/ask/custom or /api/ask or /api/chat/completions)
-        if (uri.startsWith("/api/ask") || uri.startsWith("/api/chat")) {
-            return handleChatStream(postData);
+        return newFixedLengthResponse(Response.Status.OK, "application/json", "{}");
+    }
+
+    private Response handleStartGeneration(String uri, String postData) {
+        try {
+            JSONObject reqJson = new JSONObject(postData != null ? postData : "{}");
+            String endpoint = reqJson.optString("endpoint", "");
+            if (endpoint.isEmpty()) {
+                String sub = uri.substring("/api/agents/chat/".length());
+                try {
+                    endpoint = URLDecoder.decode(sub, StandardCharsets.UTF_8.name());
+                } catch (Exception e) {
+                    endpoint = sub;
+                }
+            }
+            if (endpoint.isEmpty()) {
+                endpoint = "LLM Gateway";
+            }
+
+            String model = reqJson.optString("model", "gpt-4o-mini");
+            String prompt = reqJson.optString("text", "");
+            String conversationId = reqJson.optString("conversationId", "");
+            if (conversationId.isEmpty() || conversationId.equals("new") || conversationId.equals("-1")) {
+                conversationId = UUID.randomUUID().toString();
+            }
+            String parentMessageId = reqJson.optString("parentMessageId", "00000000-0000-0000-0000-000000000000");
+            String userMessageId = reqJson.optString("messageId", "");
+            if (userMessageId.isEmpty()) {
+                userMessageId = UUID.randomUUID().toString();
+            }
+            String responseMessageId = UUID.randomUUID().toString();
+            String streamId = "stream-" + UUID.randomUUID().toString();
+            long now = System.currentTimeMillis();
+
+            // Save conversation and user message in local DB
+            String convoTitle = prompt.length() > 30 ? prompt.substring(0, 30) + "..." : prompt;
+            dbHelper.saveConversation(conversationId, convoTitle, endpoint, model);
+            dbHelper.saveMessage(userMessageId, conversationId, parentMessageId, "User", prompt, true, false);
+
+            String apiKey = reqJson.optString("apiKey", "");
+
+            ActiveGeneration gen = new ActiveGeneration(streamId, conversationId, userMessageId,
+                    responseMessageId, parentMessageId, model, endpoint, prompt, apiKey, now);
+            activeGenerations.put(streamId, gen);
+
+            JSONObject startResp = new JSONObject();
+            startResp.put("status", "started");
+            startResp.put("streamId", streamId);
+            startResp.put("conversationId", conversationId);
+            startResp.put("generationCreatedAt", now);
+            startResp.put("generationProtocolVersion", 2);
+
+            return newFixedLengthResponse(Response.Status.OK, "application/json", startResp.toString());
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting generation", e);
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+                    "{\"error\":\"" + e.getMessage() + "\"}");
+        }
+    }
+
+    private Response handleStreamConnection(String uri) {
+        String streamId = uri.substring("/api/agents/chat/stream/".length());
+        try {
+            streamId = URLDecoder.decode(streamId, StandardCharsets.UTF_8.name());
+        } catch (Exception ignored) {}
+        if (streamId.endsWith("/")) {
+            streamId = streamId.substring(0, streamId.length() - 1);
         }
 
-        return newFixedLengthResponse(Response.Status.OK, "application/json", "{}");
+        ActiveGeneration gen = activeGenerations.get(streamId);
+        if (gen == null) {
+            Log.w(TAG, "Requested stream not found: " + streamId);
+            return newFixedLengthResponse(Response.Status.NOT_FOUND, "application/json", "{\"error\":\"Stream not found\"}");
+        }
+
+        try {
+            PipedInputStream in = new PipedInputStream(32768);
+            PipedOutputStream out = new PipedOutputStream(in);
+            gen.streamOut = out;
+
+            new Thread(() -> {
+                StringBuilder fullResponse = new StringBuilder();
+                try {
+                    // 1. Emit CREATED event
+                    JSONObject createdData = new JSONObject();
+                    createdData.put("created", true);
+                    createdData.put("streamId", gen.streamId);
+                    JSONObject userMsgObj = new JSONObject();
+                    userMsgObj.put("messageId", gen.userMessageId);
+                    userMsgObj.put("parentMessageId", gen.parentMessageId);
+                    userMsgObj.put("conversationId", gen.conversationId);
+                    userMsgObj.put("text", gen.prompt);
+                    userMsgObj.put("sender", "User");
+                    userMsgObj.put("isCreatedByUser", true);
+                    createdData.put("message", userMsgObj);
+
+                    out.write(("event: message\ndata: " + createdData.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+
+                    // 2. Determine API Token
+                    String token = gen.apiKey;
+                    if (token == null || token.isEmpty()) {
+                        token = dbHelper.getSetting("key_" + gen.endpoint, "");
+                    }
+                    if (token.isEmpty()) {
+                        token = dbHelper.getSetting("key_DevPass", "");
+                    }
+                    if (token.isEmpty()) {
+                        token = dbHelper.getSetting("key_LLM Gateway", "");
+                    }
+
+                    // 3. Build outbound OpenAI request
+                    JSONObject outboundPayload = new JSONObject();
+                    outboundPayload.put("model", gen.model);
+                    outboundPayload.put("stream", true);
+
+                    JSONArray messages = new JSONArray();
+                    JSONObject sysMsg = new JSONObject();
+                    sysMsg.put("role", "system");
+                    sysMsg.put("content", "You are a helpful AI assistant.");
+                    messages.put(sysMsg);
+
+                    // Fetch conversation history from SQLite
+                    JSONArray hist = dbHelper.getMessagesJson(gen.conversationId);
+                    if (hist != null && hist.length() > 0) {
+                        int startIdx = Math.max(0, hist.length() - 20);
+                        for (int i = startIdx; i < hist.length(); i++) {
+                            JSONObject m = hist.getJSONObject(i);
+                            String msgText = m.optString("text", "");
+                            if (msgText.isEmpty()) continue;
+                            String mId = m.optString("messageId", "");
+                            if (mId.equals(gen.userMessageId)) continue;
+                            boolean isUser = m.optBoolean("isCreatedByUser", false);
+                            JSONObject historyMsg = new JSONObject();
+                            historyMsg.put("role", isUser ? "user" : "assistant");
+                            historyMsg.put("content", msgText);
+                            messages.put(historyMsg);
+                        }
+                    }
+
+                    // Add current user prompt
+                    JSONObject currentPromptMsg = new JSONObject();
+                    currentPromptMsg.put("role", "user");
+                    currentPromptMsg.put("content", gen.prompt);
+                    messages.put(currentPromptMsg);
+
+                    outboundPayload.put("messages", messages);
+
+                    Request.Builder reqBuilder = new Request.Builder()
+                            .url("https://api.llmgateway.io/v1/chat/completions")
+                            .addHeader("x-source", "devpass-code")
+                            .post(RequestBody.create(MediaType.parse("application/json"), outboundPayload.toString()));
+
+                    if (!token.isEmpty()) {
+                        reqBuilder.addHeader("Authorization", "Bearer " + token);
+                    }
+
+                    Call call = httpClient.newCall(reqBuilder.build());
+                    gen.activeCall = call;
+
+                    try (okhttp3.Response okResp = call.execute()) {
+                        if (!okResp.isSuccessful() || okResp.body() == null) {
+                            String errMsg = "Error from LLM Gateway: " + okResp.code() + " " + okResp.message();
+                            if (okResp.code() == 401) {
+                                errMsg = "Invalid API Token or Key Required. Please set your token in Settings -> Provider Keys.";
+                            }
+                            fullResponse.append(errMsg);
+
+                            JSONObject chunk = new JSONObject();
+                            chunk.put("message", true);
+                            chunk.put("initial", false);
+                            chunk.put("text", fullResponse.toString());
+                            chunk.put("messageId", gen.responseMessageId);
+                            chunk.put("parentMessageId", gen.userMessageId);
+                            chunk.put("conversationId", gen.conversationId);
+                            chunk.put("sender", gen.model);
+
+                            out.write(("event: message\ndata: " + chunk.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
+                            out.flush();
+                        } else {
+                            ResponseBody rb = okResp.body();
+                            InputStream is = rb.byteStream();
+                            byte[] buf = new byte[2048];
+                            int read;
+                            StringBuilder lineBuf = new StringBuilder();
+
+                            while (!gen.aborted && (read = is.read(buf)) != -1) {
+                                String piece = new String(buf, 0, read, StandardCharsets.UTF_8);
+                                lineBuf.append(piece);
+
+                                int newlineIndex;
+                                while ((newlineIndex = lineBuf.indexOf("\n")) != -1) {
+                                    String line = lineBuf.substring(0, newlineIndex).trim();
+                                    lineBuf.delete(0, newlineIndex + 1);
+
+                                    if (line.startsWith("data: ")) {
+                                        String dataStr = line.substring(6).trim();
+                                        if (dataStr.equals("[DONE]")) {
+                                            continue;
+                                        }
+                                        try {
+                                            JSONObject deltaObj = new JSONObject(dataStr);
+                                            JSONArray choices = deltaObj.optJSONArray("choices");
+                                            if (choices != null && choices.length() > 0) {
+                                                JSONObject delta = choices.getJSONObject(0).optJSONObject("delta");
+                                                if (delta != null && delta.has("content")) {
+                                                    String content = delta.getString("content");
+                                                    fullResponse.append(content);
+
+                                                    JSONObject sseData = new JSONObject();
+                                                    sseData.put("message", true);
+                                                    sseData.put("initial", false);
+                                                    sseData.put("text", fullResponse.toString());
+                                                    sseData.put("messageId", gen.responseMessageId);
+                                                    sseData.put("parentMessageId", gen.userMessageId);
+                                                    sseData.put("conversationId", gen.conversationId);
+                                                    sseData.put("sender", gen.model);
+
+                                                    out.write(("event: message\ndata: " + sseData.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
+                                                    out.flush();
+                                                }
+                                            }
+                                        } catch (Exception ignored) {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Save assistant message to SQLite
+                    if (fullResponse.length() > 0) {
+                        dbHelper.saveMessage(gen.responseMessageId, gen.conversationId, gen.userMessageId, gen.model, fullResponse.toString(), false, false);
+                    }
+
+                    // Emit FINAL event
+                    JSONObject finalData = new JSONObject();
+                    finalData.put("final", true);
+                    if (gen.aborted) {
+                        finalData.put("aborted", true);
+                    }
+
+                    JSONObject convoObj = new JSONObject();
+                    convoObj.put("conversationId", gen.conversationId);
+                    convoObj.put("endpoint", gen.endpoint);
+                    convoObj.put("model", gen.model);
+                    finalData.put("conversation", convoObj);
+
+                    JSONObject reqMsg = new JSONObject();
+                    reqMsg.put("messageId", gen.userMessageId);
+                    reqMsg.put("parentMessageId", gen.parentMessageId);
+                    reqMsg.put("conversationId", gen.conversationId);
+                    reqMsg.put("text", gen.prompt);
+                    reqMsg.put("sender", "User");
+                    reqMsg.put("isCreatedByUser", true);
+                    finalData.put("requestMessage", reqMsg);
+
+                    JSONObject respMsg = new JSONObject();
+                    respMsg.put("messageId", gen.responseMessageId);
+                    respMsg.put("parentMessageId", gen.userMessageId);
+                    respMsg.put("conversationId", gen.conversationId);
+                    respMsg.put("text", fullResponse.toString());
+                    respMsg.put("sender", gen.model);
+                    respMsg.put("isCreatedByUser", false);
+                    if (gen.aborted) {
+                        respMsg.put("unfinished", true);
+                    }
+                    finalData.put("responseMessage", respMsg);
+
+                    out.write(("event: message\ndata: " + finalData.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+
+                } catch (Exception e) {
+                    Log.e(TAG, "Streaming error in thread", e);
+                    try {
+                        JSONObject errObj = new JSONObject();
+                        errObj.put("final", true);
+                        errObj.put("error", true);
+                        JSONObject cObj = new JSONObject();
+                        cObj.put("conversationId", gen.conversationId);
+                        errObj.put("conversation", cObj);
+                        JSONObject rObj = new JSONObject();
+                        rObj.put("messageId", gen.responseMessageId);
+                        rObj.put("parentMessageId", gen.userMessageId);
+                        rObj.put("conversationId", gen.conversationId);
+                        rObj.put("text", "Generation error: " + e.getMessage());
+                        rObj.put("sender", gen.model);
+                        rObj.put("isCreatedByUser", false);
+                        errObj.put("responseMessage", rObj);
+                        out.write(("event: message\ndata: " + errObj.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
+                        out.flush();
+                    } catch (Exception ignored) {}
+                } finally {
+                    activeGenerations.remove(gen.streamId);
+                    try {
+                        out.close();
+                    } catch (Exception ignored) {}
+                }
+            }).start();
+
+            Response streamResp = newChunkedResponse(Response.Status.OK, "text/event-stream; charset=utf-8", in);
+            streamResp.addHeader("Cache-Control", "no-cache, no-transform");
+            streamResp.addHeader("Connection", "keep-alive");
+            streamResp.addHeader("X-Generation-Protocol-Version", "2");
+            return streamResp;
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error establishing stream connection", e);
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+                    "{\"error\":\"" + e.getMessage() + "\"}");
+        }
     }
 
     private Response handleChatStream(String postData) {
@@ -406,13 +868,11 @@ public class LocalServer extends NanoHTTPD {
             outboundPayload.put("stream", true);
 
             JSONArray messages = new JSONArray();
-            // System message
             JSONObject sysMsg = new JSONObject();
             sysMsg.put("role", "system");
             sysMsg.put("content", "You are a helpful AI assistant.");
             messages.put(sysMsg);
 
-            // User message
             JSONObject userMsg = new JSONObject();
             userMsg.put("role", "user");
             userMsg.put("content", prompt);
@@ -550,30 +1010,35 @@ public class LocalServer extends NanoHTTPD {
 
             try (okhttp3.Response resp = httpClient.newCall(req).execute()) {
                 if (resp.isSuccessful() && resp.body() != null) {
-                    String json = resp.body().string();
-                    JSONObject parsed = new JSONObject(json);
-                    JSONArray data = parsed.optJSONArray("data");
+                    String bodyStr = resp.body().string();
+                    JSONObject json = new JSONObject(bodyStr);
+                    JSONArray data = json.optJSONArray("data");
                     if (data != null) {
                         for (int i = 0; i < data.length(); i++) {
                             JSONObject m = data.getJSONObject(i);
-                            result.put(m.optString("id"));
+                            String id = m.optString("id");
+                            if (!id.isEmpty()) {
+                                result.put(id);
+                            }
                         }
-                        cachedModels = result;
-                        lastModelsFetchTime = now;
-                        return result;
                     }
                 }
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error fetching models from gateway", e);
+            Log.e(TAG, "Failed to fetch models from gateway", e);
         }
 
-        // Fallbacks
-        result.put("gpt-4o");
-        result.put("gpt-4o-mini");
-        result.put("claude-sonnet-4-5");
-        result.put("o1");
-        result.put("o3-mini");
+        if (result.length() == 0) {
+            result.put("gpt-4o");
+            result.put("gpt-4o-mini");
+            result.put("claude-3-5-sonnet-20241022");
+            result.put("claude-3-5-haiku-20241022");
+            result.put("gemini-2.0-flash-exp");
+            result.put("llama-3.3-70b-instruct");
+        }
+
+        cachedModels = result;
+        lastModelsFetchTime = now;
         return result;
     }
 
@@ -581,21 +1046,22 @@ public class LocalServer extends NanoHTTPD {
         if (uri.equals("/") || uri.isEmpty()) {
             uri = "/index.html";
         }
+
         String assetPath = "www" + uri;
         AssetManager am = context.getAssets();
 
         try {
             InputStream is = am.open(assetPath);
-            String mime = resolveMimeType(uri);
+            String mime = resolveMimeType(assetPath);
             Response resp = newChunkedResponse(Response.Status.OK, mime, is);
             addCorsHeaders(resp);
             return resp;
         } catch (IOException e) {
-            // SPA fallback: ONLY return index.html for navigation routes (not file assets like .js, .css, .png, etc.)!
-            if (!uri.contains(".")) {
+            // SPA routing fallback: return index.html for non-asset routes
+            if (!uri.contains(".") || uri.endsWith(".html")) {
                 try {
-                    InputStream is = am.open("www/index.html");
-                    Response resp = newChunkedResponse(Response.Status.OK, "text/html; charset=utf-8", is);
+                    InputStream fallback = am.open("www/index.html");
+                    Response resp = newChunkedResponse(Response.Status.OK, "text/html; charset=utf-8", fallback);
                     addCorsHeaders(resp);
                     return resp;
                 } catch (IOException fallbackErr) {
@@ -625,7 +1091,8 @@ public class LocalServer extends NanoHTTPD {
 
     private void addCorsHeaders(Response resp) {
         resp.addHeader("Access-Control-Allow-Origin", "*");
-        resp.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        resp.addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-source, x-api-key");
+        resp.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+        resp.addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-source, x-api-key, X-Generation-Protocol-Version");
+        resp.addHeader("Access-Control-Expose-Headers", "X-Generation-Protocol-Version");
     }
 }

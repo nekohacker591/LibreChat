@@ -73,6 +73,13 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
         }
     }
 
+    private static String formatIsoDate(long time) {
+        if (time <= 0) time = System.currentTimeMillis();
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US);
+        sdf.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        return sdf.format(new java.util.Date(time));
+    }
+
     public synchronized JSONArray getConversationsJson() {
         JSONArray arr = new JSONArray();
         SQLiteDatabase db = getReadableDatabase();
@@ -84,8 +91,8 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
                 obj.put("title", c.getString(c.getColumnIndexOrThrow("title")));
                 obj.put("endpoint", c.getString(c.getColumnIndexOrThrow("endpoint")));
                 obj.put("model", c.getString(c.getColumnIndexOrThrow("model")));
-                obj.put("createdAt", c.getLong(c.getColumnIndexOrThrow("created_at")));
-                obj.put("updatedAt", c.getLong(c.getColumnIndexOrThrow("updated_at")));
+                obj.put("createdAt", formatIsoDate(c.getLong(c.getColumnIndexOrThrow("created_at"))));
+                obj.put("updatedAt", formatIsoDate(c.getLong(c.getColumnIndexOrThrow("updated_at"))));
                 arr.put(obj);
             }
         } catch (Exception e) {
@@ -101,6 +108,36 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
         db.delete(TABLE_MESSAGES, "conversation_id = ?", new String[]{conversationId});
         int rows = db.delete(TABLE_CONVERSATIONS, "conversation_id = ?", new String[]{conversationId});
         return rows > 0;
+    }
+
+    public synchronized JSONObject getConversationJson(String conversationId) {
+        SQLiteDatabase db = getReadableDatabase();
+        Cursor c = db.query(TABLE_CONVERSATIONS, null, "conversation_id = ?", new String[]{conversationId}, null, null, null);
+        try {
+            if (c.moveToNext()) {
+                JSONObject obj = new JSONObject();
+                obj.put("conversationId", c.getString(c.getColumnIndexOrThrow("conversation_id")));
+                obj.put("title", c.getString(c.getColumnIndexOrThrow("title")));
+                obj.put("endpoint", c.getString(c.getColumnIndexOrThrow("endpoint")));
+                obj.put("model", c.getString(c.getColumnIndexOrThrow("model")));
+                obj.put("createdAt", formatIsoDate(c.getLong(c.getColumnIndexOrThrow("created_at"))));
+                obj.put("updatedAt", formatIsoDate(c.getLong(c.getColumnIndexOrThrow("updated_at"))));
+                return obj;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            c.close();
+        }
+        return null;
+    }
+
+    public synchronized void updateConversationTitle(String conversationId, String title) {
+        SQLiteDatabase db = getWritableDatabase();
+        ContentValues cv = new ContentValues();
+        cv.put("title", title);
+        cv.put("updated_at", System.currentTimeMillis());
+        db.update(TABLE_CONVERSATIONS, cv, "conversation_id = ?", new String[]{conversationId});
     }
 
     // Messages
@@ -139,7 +176,8 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
                 obj.put("text", c.getString(c.getColumnIndexOrThrow("text")));
                 obj.put("isCreatedByUser", c.getInt(c.getColumnIndexOrThrow("is_user")) == 1);
                 obj.put("error", c.getInt(c.getColumnIndexOrThrow("error")) == 1);
-                obj.put("createdAt", c.getLong(c.getColumnIndexOrThrow("created_at")));
+                obj.put("createdAt", formatIsoDate(c.getLong(c.getColumnIndexOrThrow("created_at"))));
+                obj.put("updatedAt", formatIsoDate(c.getLong(c.getColumnIndexOrThrow("created_at"))));
                 arr.put(obj);
             }
         } catch (Exception e) {

@@ -180,6 +180,26 @@ public class MainActivity extends AppCompatActivity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                // Block direct navigation to /api/ URLs in the WebView
+                if (url.contains("/api/")) {
+                    return true;
+                }
+                // Allow internal local server navigation
+                String currentServer = prefs.getString(PREF_SERVER_URL, "http://127.0.0.1:8080");
+                if (url.startsWith("http://127.0.0.1:8080") || (currentServer != null && url.startsWith(currentServer))) {
+                    return false;
+                }
+                // Open external URLs in system browser
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, request.getUrl());
+                    startActivity(intent);
+                } catch (Exception ignored) {}
+                return true;
+            }
+
+            @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 progressBar.setVisibility(View.VISIBLE);
             }
