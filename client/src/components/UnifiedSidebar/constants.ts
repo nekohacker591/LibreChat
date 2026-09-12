@@ -15,8 +15,8 @@ export const EXPANDED_MIN = 360;
  * default, so anything rendered outside the property's scope still agrees.
  */
 export const MOBILE_DRAWER_WIDTH_VAR = '--mobile-drawer-width';
-export const MOBILE_DRAWER_FULL_WIDTH = '100%';
-export const MOBILE_DRAWER_STRIP_WIDTH = '80%';
+export const MOBILE_DRAWER_FULL_WIDTH = '85%';
+export const MOBILE_DRAWER_STRIP_WIDTH = '85%';
 export const MOBILE_DRAWER_WIDTH = `var(${MOBILE_DRAWER_WIDTH_VAR}, ${MOBILE_DRAWER_FULL_WIDTH})`;
 export const MOBILE_PANE_SHIFT = `translateX(${MOBILE_DRAWER_WIDTH})`;
 export const TRANSITION_MS = 300;

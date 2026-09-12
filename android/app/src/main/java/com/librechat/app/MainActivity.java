@@ -39,7 +39,6 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
@@ -62,7 +61,6 @@ public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private ProgressBar progressBar;
-    private SwipeRefreshLayout swipeRefreshLayout;
     private LinearLayout errorView;
     private LinearLayout splashView;
     private EditText etServerUrl;
@@ -137,7 +135,6 @@ public class MainActivity extends AppCompatActivity {
     private void initViews() {
         webView = findViewById(R.id.webView);
         progressBar = findViewById(R.id.progressBar);
-        swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
         errorView = findViewById(R.id.errorView);
         splashView = findViewById(R.id.splashView);
         etServerUrl = findViewById(R.id.etServerUrl);
@@ -145,13 +142,6 @@ public class MainActivity extends AppCompatActivity {
         btnConnect = findViewById(R.id.btnConnect);
         btnInternalServer = findViewById(R.id.btnInternalServer);
         tvAutoRetry = findViewById(R.id.tvAutoRetry);
-
-        swipeRefreshLayout.setColorSchemeColors(ContextCompat.getColor(this, R.color.primary_emerald));
-        swipeRefreshLayout.setOnRefreshListener(() -> {
-            errorView.setVisibility(View.GONE);
-            webView.setVisibility(View.VISIBLE);
-            webView.reload();
-        });
 
         btnConnect.setOnClickListener(v -> {
             String url = etServerUrl.getText().toString().trim();
@@ -175,11 +165,18 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowContentAccess(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
+
+        // Mobile Friendly Viewport and DPI
         settings.setUseWideViewPort(true);
-        settings.setLoadWithOverviewMode(true);
+        settings.setLoadWithOverviewMode(false); // Do NOT shrink or zoom out to desktop overview
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
+        settings.setTextZoom(100);
+        settings.setDefaultTextEncodingName("utf-8");
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -190,7 +187,6 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
-                swipeRefreshLayout.setRefreshing(false);
                 cancelRetryTimer();
                 if (splashView != null) {
                     splashView.setVisibility(View.GONE);
@@ -201,7 +197,6 @@ public class MainActivity extends AppCompatActivity {
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame()) {
                     progressBar.setVisibility(View.GONE);
-                    swipeRefreshLayout.setRefreshing(false);
                     boolean internal = prefs.getBoolean(PREF_USE_INTERNAL_SERVER, true);
                     if (internal) {
                         mainHandler.postDelayed(() -> {

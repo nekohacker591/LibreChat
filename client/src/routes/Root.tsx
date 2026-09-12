@@ -184,7 +184,7 @@ export default function Root() {
                       the deferred flip has not committed yet. Once expanded
                       lands, a full-width drawer covers it, so keeping it
                       mounted would only expose a duplicate dismiss control. */}
-                  {isSmallScreen && (drawerStrip || (isSliding && !sidebarExpanded)) && (
+                  {isSmallScreen && (
                     <MobileDrawerScrim
                       expanded={sidebarExpanded}
                       isSliding={isSliding}

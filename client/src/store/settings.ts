@@ -113,7 +113,7 @@ const localStorageAtoms = {
    * conversation visible that also closes it when tapped. Off by default: the
    * drawer covers the screen and the swipe closes it.
    */
-  mobileDrawerStrip: atomWithLocalStorage('mobileDrawerStrip', false),
+  mobileDrawerStrip: atomWithLocalStorage('mobileDrawerStrip', true),
   showFooter: atomWithLocalStorage('showFooter', true),
 
   // Commands settings
