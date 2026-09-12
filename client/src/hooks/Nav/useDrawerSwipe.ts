@@ -41,12 +41,7 @@ const setScrimOpacity = (open: boolean) => {
     return;
   }
   scrim.style.opacity = open ? '1' : '0';
-  /** Recoil still has expanded=false during an open kick, so the class
-   *  pointer-events-none would leave the fading-in scrim click-through. Every
-   *  close hands capture back to the expanded/isSliding classes, which hold it
-   *  for exactly the slide; keeping the override would outlive them by the
-   *  settle buffer and swallow taps on the strip. */
-  scrim.style.pointerEvents = open ? 'auto' : '';
+  scrim.style.pointerEvents = open ? 'auto' : 'none';
 };
 
 /**
@@ -135,23 +130,8 @@ export function kickDrawerAnimation(next: boolean, applyState: () => void): Draw
   }
   pendingFlipTarget = next;
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        /** Applies only while still the LATEST un-superseded intent. A
-         * retarget hands the state to its own deferred flip — this one
-         * transiently committing the old direction would re-register the
-         * animator and get the newer flip judged stale. Teardown and
-         * re-registration (breakpoint cross, logout, route change) clear
-         * the pending target in the effect cleanup, so stale flips drop
-         * out here as well instead of toggling the DESKTOP sidebar or
-         * persisting drawer state past logout. */
-        if (pendingFlipTarget !== next) {
-          return;
-        }
-        pendingFlipTarget = null;
-        applyState();
-      });
-    });
+    pendingFlipTarget = null;
+    applyState();
   });
   return 'slide';
 }
@@ -252,7 +232,7 @@ const releaseInlineStyles = (drawer: HTMLElement, pane: HTMLElement, paneOpen: b
   markDrawerAnimationStart(null);
   const scrim = document.getElementById(MOBILE_SCRIM_ID);
   if (scrim != null) {
-    scrim.style.pointerEvents = '';
+    scrim.style.pointerEvents = paneOpen ? 'auto' : 'none';
   }
 };
 

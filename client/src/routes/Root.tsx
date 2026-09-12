@@ -169,11 +169,9 @@ export default function Root() {
                       transform: isSmallScreen && sidebarExpanded ? MOBILE_PANE_SHIFT : 'none',
                       transition: prefersReducedMotion ? undefined : SIDEBAR_TRANSITION,
                     }}
-                    /** Recoil's flip is deferred past the opening frames and
-                     *  the closing transition outlives it at the other end, so
-                     *  `isSliding` covers the travel `sidebarExpanded` brackets
-                     *  too late and drops too early. */
-                    inert={isSmallScreen && (sidebarExpanded || isSliding) ? '' : undefined}
+                    /** When drawer is expanded on mobile, make the background pane inert.
+                     *  As soon as sidebar is closed or closing, remove inert immediately so taps respond instantly. */
+                    inert={isSmallScreen && sidebarExpanded ? '' : undefined}
                   >
                     <Outlet />
                   </div>

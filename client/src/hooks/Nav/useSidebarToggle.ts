@@ -48,9 +48,7 @@ export default function useSidebarToggle(): SidebarToggle {
            * navigation, a focus request) must not vanish because the
            * breakpoint crossed mid-slide. */
           requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              requestAnimationFrame(afterSlide);
-            });
+            afterSlide();
           });
         } else {
           afterSlide();

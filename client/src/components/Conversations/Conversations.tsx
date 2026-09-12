@@ -304,14 +304,19 @@ const Conversations: FC<ConversationsProps> = ({
 
   /** Grid only re-derives row offsets when the row count changes; reorders that
    *  keep the count (e.g. a convo bumped across date groups) need an explicit recompute. */
+  const prevItemsLengthRef = useRef(flattenedItems.length);
   useEffect(() => {
+    if (prevItemsLengthRef.current === flattenedItems.length) {
+      return;
+    }
+    prevItemsLengthRef.current = flattenedItems.length;
     const frameId = requestAnimationFrame(() => {
       if (containerRef.current && 'recomputeRowHeights' in containerRef.current) {
         containerRef.current.recomputeRowHeights(0);
       }
     });
     return () => cancelAnimationFrame(frameId);
-  }, [flattenedItems, containerRef]);
+  }, [flattenedItems.length, containerRef]);
 
   /** CellMeasurerCache(fixedWidth) keys heights by row, not width. Rows first measured
    *  at a narrow width (e.g. mid expand-animation from a collapsed sidebar) would
@@ -321,7 +326,12 @@ const Conversations: FC<ConversationsProps> = ({
     if (listWidth === 0 || listWidth === measuredWidthRef.current) {
       return;
     }
+    const prevWidth = measuredWidthRef.current;
     measuredWidthRef.current = listWidth;
+    // On mobile screen, drawer width is fixed and doesn't change wrapped heights; avoid thrashing measurements
+    if (isSmallScreen && prevWidth > 0) {
+      return;
+    }
     const frameId = requestAnimationFrame(() => {
       cache.clearAll();
       if (containerRef.current && 'recomputeRowHeights' in containerRef.current) {
@@ -329,7 +339,7 @@ const Conversations: FC<ConversationsProps> = ({
       }
     });
     return () => cancelAnimationFrame(frameId);
-  }, [listWidth, cache, containerRef]);
+  }, [listWidth, cache, containerRef, isSmallScreen]);
 
   const rowRenderer = useCallback(
     ({ index, key, parent, style }) => {
@@ -384,7 +394,7 @@ const Conversations: FC<ConversationsProps> = ({
 
   const handleRowsRendered = useCallback(
     ({ stopIndex }: { stopIndex: number }) => {
-      if (stopIndex >= flattenedItems.length - 8) {
+      if (flattenedItems.length > 8 && stopIndex >= flattenedItems.length - 8) {
         throttledLoadMore();
       }
     },
