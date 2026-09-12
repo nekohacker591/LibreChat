@@ -73,7 +73,33 @@ const isOpenIdReuseUser = (strategy, user, openIdReuseUserId) =>
  * `tenantContextMiddleware` to propagate request context into AsyncLocalStorage
  * for downstream Mongoose tenant isolation and structured logging.
  */
-const requireJwtAuth = (req, res, next) => {
+const requireJwtAuth = async (req, res, next) => {
+  try {
+    const {
+      isDevPassRequest,
+      validateDevPassToken,
+      extractTokenFromRequest,
+      getDevPassPrincipal,
+    } = require('~/server/services/DevPassService');
+
+    if (isDevPassRequest(req)) {
+      const token = extractTokenFromRequest(req);
+      if (token && validateDevPassToken(req)) {
+        req.user = getDevPassPrincipal(token);
+        req.authStrategy = 'devpass-api-token';
+        res.setHeader('x-source', 'devpass-code');
+        return tenantContextMiddleware(req, res, (tenantErr) => {
+          if (tenantErr) {
+            return next(tenantErr);
+          }
+          refreshCloudFrontCookies(req, res, next);
+        });
+      }
+    }
+  } catch (err) {
+    logger.error('[requireJwtAuth] DevPass token verification error:', err);
+  }
+
   const {
     tokenProvider,
     tokenSource,

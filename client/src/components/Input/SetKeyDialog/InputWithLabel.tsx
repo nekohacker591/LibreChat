@@ -14,6 +14,7 @@ interface InputWithLabelProps {
   inputClassName?: string;
   secret?: boolean;
   ref?: Ref<HTMLInputElement>;
+  placeholder?: string;
 }
 
 const InputWithLabel: FC<InputWithLabelProps> = forwardRef((props, ref) => {
@@ -26,8 +27,10 @@ const InputWithLabel: FC<InputWithLabelProps> = forwardRef((props, ref) => {
     onChange,
     labelClassName = '',
     inputClassName = '',
+    placeholder,
   } = props;
   const localize = useLocalize();
+  const effectivePlaceholder = placeholder ?? `${localize('com_endpoint_config_value')} ${label}`;
   return (
     <>
       <div className={cn('mt-4 flex flex-row', labelClassName)}>
@@ -51,7 +54,7 @@ const InputWithLabel: FC<InputWithLabelProps> = forwardRef((props, ref) => {
           data-lpignore="true"
           data-1p-ignore="true"
           controlsOnHover
-          placeholder={`${localize('com_endpoint_config_value')} ${label}`}
+          placeholder={effectivePlaceholder}
           className={cn('flex h-10 max-h-10 w-full resize-none px-3 py-2', inputClassName)}
         />
       ) : (
@@ -61,7 +64,7 @@ const InputWithLabel: FC<InputWithLabelProps> = forwardRef((props, ref) => {
           value={value ?? ''}
           onChange={onChange}
           ref={ref}
-          placeholder={`${localize('com_endpoint_config_value')} ${label}`}
+          placeholder={effectivePlaceholder}
           className={cn('flex h-10 max-h-10 w-full resize-none px-3 py-2', inputClassName)}
         />
       )}

@@ -1,0 +1,75 @@
+{
+  "name": "librechat-desktop",
+  "version": "1.0.0",
+  "description": "LibreChat Desktop Application Wrapper with Auto-Update",
+  "main": "main.js",
+  "author": "LibreChat Community",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:portable": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^34.3.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.librechat.desktop",
+    "productName": "LibreChat",
+    "copyright": "Copyright © 2026 LibreChat",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "updater.js",
+      "backend-manager.js",
+      "splash.html",
+      "connection-dialog.html",
+      "scripts/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LibreChat"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "danny-avila",
+        "repo": "LibreChat"
+      }
+    ]
+  },
+  "allowScripts": {
+    "electron@34.5.8": true
+  }
+}

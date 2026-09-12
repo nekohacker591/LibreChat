@@ -48,6 +48,29 @@ function HelpText({ endpoint }: { endpoint: string }) {
     ),
   };
 
+  const endpointStr = typeof endpoint === 'string' ? endpoint.toLowerCase() : '';
+  const isLLMGateway =
+    endpointStr.includes('llm gateway') ||
+    endpointStr.includes('llmgateway') ||
+    endpointStr.includes('devpass');
+
+  if (isLLMGateway) {
+    return (
+      <small className="mt-4 block break-words text-text-secondary">
+        Enter your API token (starts with <code className="text-xs">llmgtwy_</code> or DevPass token). See{' '}
+        <a
+          target="_blank"
+          href="https://docs.llmgateway.io/"
+          rel="noreferrer"
+          className="text-link underline"
+        >
+          LLM Gateway Docs
+        </a>{' '}
+        for details on authentication and available models.
+      </small>
+    );
+  }
+
   return textMap[endpoint] || null;
 }
 

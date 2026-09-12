@@ -193,4 +193,35 @@ describe('Environment Variable Extraction', () => {
       );
     });
   });
+
+  describe('extractEnvVariable default fallback syntax (:-)', () => {
+    it('should return the environment variable if set', () => {
+      process.env.MY_VAR = 'custom-value';
+      expect(extractEnvVariable('${MY_VAR:-default-value}')).toBe('custom-value');
+    });
+
+    it('should return the fallback if environment variable is not set', () => {
+      delete process.env.MY_VAR;
+      expect(extractEnvVariable('${MY_VAR:-user_provided}')).toBe('user_provided');
+    });
+
+    it('should resolve nested fallbacks', () => {
+      delete process.env.VAR_A;
+      delete process.env.VAR_B;
+      expect(extractEnvVariable('${VAR_A:-${VAR_B:-user_provided}}')).toBe('user_provided');
+
+      process.env.VAR_B = 'token-from-b';
+      expect(extractEnvVariable('${VAR_A:-${VAR_B:-user_provided}}')).toBe('token-from-b');
+
+      process.env.VAR_A = 'token-from-a';
+      expect(extractEnvVariable('${VAR_A:-${VAR_B:-user_provided}}')).toBe('token-from-a');
+    });
+
+    it('should resolve fallback in composite strings', () => {
+      delete process.env.PORT;
+      expect(extractEnvVariable('http://localhost:${PORT:-8080}/v1')).toBe('http://localhost:8080/v1');
+      process.env.PORT = '3080';
+      expect(extractEnvVariable('http://localhost:${PORT:-8080}/v1')).toBe('http://localhost:3080/v1');
+    });
+  });
 });

@@ -244,6 +244,36 @@ export function createLoadConfigModels(deps: LoadConfigModelsDeps) {
         }
       }
 
+      if (
+        models?.fetch &&
+        (apiKeyIsUserProvided || baseURLIsUserProvided) &&
+        !baseURLIsUserProvided &&
+        BASE_URL &&
+        (BASE_URL.includes('llmgateway.io') || endpointHeaders?.['x-source'] === 'devpass-code')
+      ) {
+        const publicFetchKey = `public:${BASE_URL}__${headersFingerprint(endpointHeaders)}`;
+        if (!fetchPromisesMap[publicFetchKey]) {
+          const tokenKey = getTokenConfigKey(endpoint, name, req.user?.id ?? '', tenantId);
+          uniqueKeyToTokenKey[publicFetchKey] = tokenKey;
+          fetchPromisesMap[publicFetchKey] = fetchModels({
+            name,
+            apiKey: '',
+            baseURL: BASE_URL,
+            baseURLIsUserProvided: false,
+            allowedAddresses: appConfig.endpoints?.allowedAddresses,
+            user: req.user?.id,
+            userObject: req.user,
+            headers: endpointHeaders,
+            direct: endpoint.directEndpoint,
+            userIdQuery: models.userIdQuery,
+            tokenKey,
+          });
+        }
+        uniqueKeyToEndpointsMap[publicFetchKey] = uniqueKeyToEndpointsMap[publicFetchKey] || [];
+        uniqueKeyToEndpointsMap[publicFetchKey].push(name);
+        continue;
+      }
+
       if (Array.isArray(models?.default)) {
         modelsConfig[name] = models.default.map((model) =>
           typeof model === 'string' ? model : model.name,

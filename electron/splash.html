@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Starting LibreChat...</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      background-color: #171717;
+      color: #ececec;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+    .container {
+      text-align: center;
+      max-width: 400px;
+      padding: 20px;
+    }
+    .logo {
+      width: 72px;
+      height: 72px;
+      margin-bottom: 24px;
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.2);
+      animation: pulse 2.5s infinite ease-in-out;
+    }
+    @keyframes pulse {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 8px 24px rgba(16, 185, 129, 0.2);
+      }
+      50% {
+        transform: scale(1.05);
+        box-shadow: 0 12px 32px rgba(16, 185, 129, 0.4);
+      }
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    .status-text {
+      font-size: 0.9rem;
+      color: #9ca3af;
+      margin-top: 12px;
+      min-height: 24px;
+    }
+    .progress-bar-container {
+      width: 240px;
+      height: 4px;
+      background-color: #2e2e2e;
+      border-radius: 4px;
+      margin: 20px auto 0;
+      overflow: hidden;
+      position: relative;
+    }
+    .progress-bar {
+      position: absolute;
+      width: 40%;
+      height: 100%;
+      background-color: #10b981;
+      border-radius: 4px;
+      animation: progress-indeterminate 1.6s infinite ease-in-out;
+    }
+    @keyframes progress-indeterminate {
+      0% {
+        left: -40%;
+      }
+      50% {
+        left: 40%;
+      }
+      100% {
+        left: 100%;
+      }
+    }
+    .troubleshoot {
+      margin-top: 36px;
+      opacity: 0;
+      transition: opacity 0.5s ease-in;
+    }
+    .troubleshoot.visible {
+      opacity: 1;
+    }
+    .troubleshoot a {
+      color: #10b981;
+      text-decoration: none;
+      font-size: 0.8rem;
+      margin: 0 8px;
+      cursor: pointer;
+    }
+    .troubleshoot a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <img src="assets/icon.png" alt="LibreChat" class="logo">
+    <h1>LibreChat Desktop</h1>
+    <div class="progress-bar-container">
+      <div class="progress-bar"></div>
+    </div>
+    <div id="statusText" class="status-text">Starting backend server...</div>
+
+    <div id="troubleshoot" class="troubleshoot">
+      <a onclick="openServerConfig()">Change Server</a>
+      <span>•</span>
+      <a onclick="retryStartup()">Retry</a>
+    </div>
+  </div>
+
+  <script>
+    const statusText = document.getElementById('statusText');
+    const troubleshoot = document.getElementById('troubleshoot');
+
+    // Show troubleshoot options if backend takes longer than 12 seconds
+    setTimeout(() => {
+      troubleshoot.classList.add('visible');
+    }, 12000);
+
+    if (window.electronAPI && window.electronAPI.onStatusUpdate) {
+      window.electronAPI.onStatusUpdate((msg) => {
+        statusText.textContent = msg;
+      });
+    }
+
+    function openServerConfig() {
+      window.location.href = 'connection-dialog.html';
+    }
+
+    function retryStartup() {
+      window.location.reload();
+    }
+  </script>
+</body>
+</html>

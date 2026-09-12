@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_reload"
+        android:title="Reload"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_use_internal_server"
+        android:title="Use Internal Server (On-Device)"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_change_server"
+        android:title="Connect to PC Server (LAN)"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_check_updates"
+        android:title="Check for Updates"
+        app:showAsAction="never" />
+</menu>

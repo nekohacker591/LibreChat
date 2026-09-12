@@ -174,7 +174,11 @@ export async function fetchModels({
     return models;
   }
 
-  if (!apiKey) {
+  const isPublicCatalog =
+    typeof baseURL === 'string' &&
+    (baseURL.includes('llmgateway.io') || headers?.['x-source'] === 'devpass-code');
+
+  if (!apiKey && !isPublicCatalog) {
     return models;
   }
 
@@ -270,7 +274,7 @@ export async function fetchModels({
       const hasAuthHeader = Object.keys(options.headers).some(
         (k) => k.toLowerCase() === 'authorization',
       );
-      if (!hasAuthHeader) {
+      if (!hasAuthHeader && apiKey) {
         options.headers.Authorization = `Bearer ${apiKey}`;
       }
     }

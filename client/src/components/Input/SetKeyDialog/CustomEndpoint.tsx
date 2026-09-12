@@ -10,6 +10,12 @@ const CustomEndpoint = ({
   userProvideURL?: boolean | null;
 }) => {
   const { control } = useFormContext();
+  const endpointStr = typeof endpoint === 'string' ? endpoint.toLowerCase() : '';
+  const isLLMGateway =
+    endpointStr.includes('llm gateway') ||
+    endpointStr.includes('llmgateway') ||
+    endpointStr.includes('devpass');
+
   return (
     <form className="flex-wrap">
       <Controller
@@ -19,7 +25,8 @@ const CustomEndpoint = ({
           <InputWithLabel
             id="apiKey"
             {...field}
-            label={`${endpoint} API Key`}
+            label={isLLMGateway ? `${endpoint} API Token` : `${endpoint} API Key`}
+            placeholder={isLLMGateway ? 'llmgtwy_... or DevPass token' : undefined}
             labelClassName="mb-1"
             inputClassName="mb-2"
             secret

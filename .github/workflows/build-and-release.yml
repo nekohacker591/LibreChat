@@ -1,0 +1,107 @@
+name: Build and Release Desktop & Android Apps
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-electron-windows:
+    name: Build Windows Electron App (.exe)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install Electron Dependencies
+        working-directory: electron
+        run: npm ci || npm install
+
+      - name: Build & Package Windows Installer
+        working-directory: electron
+        run: npm run dist:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-windows-build
+          path: |
+            electron/dist/*.exe
+            electron/dist/latest.yml
+            electron/dist/*.blockmap
+
+  build-android-apk:
+    name: Build Android App (.apk)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant Execute Permission to Gradlew
+        working-directory: android
+        run: chmod +x gradlew || true
+
+      - name: Build Android Release APK
+        working-directory: android
+        run: |
+          if [ -f "gradlew" ]; then
+            ./gradlew assembleRelease --stacktrace
+          else
+            gradle assembleRelease --stacktrace
+          fi
+
+      - name: Upload Android Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-build
+          path: android/app/build/outputs/apk/release/*.apk
+
+  publish-release:
+    name: Create GitHub Release with Auto-Update Artifacts
+    needs: [build-electron-windows, build-android-apk]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Download Windows Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: electron-windows-build
+          path: release-assets/
+
+      - name: Download Android Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk-build
+          path: release-assets/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LibreChat</string>
+    <string name="server_url_prompt">Enter LibreChat Server URL</string>
+    <string name="server_url_default">http://10.0.2.2:3080</string>
+    <string name="check_updates">Check for Updates</string>
+    <string name="change_server">Change Server URL</string>
+    <string name="update_available_title">Update Available</string>
+    <string name="update_available_message">A new version (%1$s) of LibreChat is available. Would you like to download and install it now?</string>
+    <string name="update_now">Update Now</string>
+    <string name="cancel">Cancel</string>
+</resources>

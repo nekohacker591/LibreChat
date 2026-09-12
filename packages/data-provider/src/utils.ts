@@ -34,9 +34,43 @@ export function extractVariableName(value: string): string | null {
   return match ? match[1] : null;
 }
 
+function resolveVarWithDefault(expr: string): string {
+  let colonDashIndex = -1;
+  let depth = 0;
+  for (let i = 0; i < expr.length - 1; i++) {
+    if (expr[i] === '$' && expr[i + 1] === '{') {
+      depth++;
+      i++;
+    } else if (expr[i] === '}' && depth > 0) {
+      depth--;
+    } else if (depth === 0 && expr[i] === ':' && expr[i + 1] === '-') {
+      colonDashIndex = i;
+      break;
+    }
+  }
+
+  if (colonDashIndex !== -1) {
+    const varName = expr.slice(0, colonDashIndex).trim();
+    const fallback = expr.slice(colonDashIndex + 2).trim();
+    if (isSensitiveEnvVar(varName)) {
+      return `\${${expr}}`;
+    }
+    const val = process.env[varName];
+    if (val !== undefined && val !== '') {
+      return val;
+    }
+    return extractEnvVariable(fallback);
+  }
+
+  if (isSensitiveEnvVar(expr)) {
+    return `\${${expr}}`;
+  }
+  return process.env[expr] || `\${${expr}}`;
+}
+
 /** Extracts the value of an environment variable from a string. */
-export function extractEnvVariable(value: string) {
-  if (!value) {
+export function extractEnvVariable(value: string): string {
+  if (!value || typeof value !== 'string') {
     return value;
   }
 
@@ -45,6 +79,9 @@ export function extractEnvVariable(value: string) {
   const singleMatch = trimmed.match(envVarRegex);
   if (singleMatch) {
     const varName = singleMatch[1];
+    if (varName.includes(':-')) {
+      return resolveVarWithDefault(varName);
+    }
     if (isSensitiveEnvVar(varName)) {
       return trimmed;
     }
@@ -69,7 +106,9 @@ export function extractEnvVariable(value: string) {
     if (isSensitiveEnvVar(varName)) {
       continue;
     }
-    const envValue = process.env[varName] || fullMatch;
+    const envValue = varName.includes(':-')
+      ? resolveVarWithDefault(varName)
+      : process.env[varName] || fullMatch;
     result = result.substring(0, index) + envValue + result.substring(index + fullMatch.length);
   }
 

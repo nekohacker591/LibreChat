@@ -77,8 +77,12 @@ api/tsconfig.json
 .flooignore
 
 #config file
-librechat.yaml
+# librechat.yaml included for DevPass / LLM Gateway configuration
 librechat.yml
+
+# Binary packages (download via GitHub Releases)
+*.apk
+*.exe
 
 # Environment
 .env*

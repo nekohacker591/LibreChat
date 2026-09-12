@@ -265,14 +265,25 @@ export async function initializeCustom(
       endpointConfig.tokenConfig as Record<string, Record<string, number>>,
     );
   } else {
-    const cachedConfig =
-      FetchTokenConfig[endpoint.toLowerCase() as keyof typeof FetchTokenConfig] &&
-      (await cache.get(tokenKey));
+    const isTokenFetchable =
+      FetchTokenConfig[endpoint.toLowerCase() as keyof typeof FetchTokenConfig] != null ||
+      endpoint.toLowerCase().includes('llm gateway') ||
+      endpoint.toLowerCase().includes('llmgateway') ||
+      endpoint.toLowerCase().includes('devpass') ||
+      (typeof baseURL === 'string' && baseURL.includes('llmgateway.io'));
+    const cachedConfig = isTokenFetchable && (await cache.get(tokenKey));
     endpointTokenConfig = (cachedConfig as EndpointTokenConfig) || undefined;
   }
 
+  const isTokenFetchable =
+    FetchTokenConfig[endpoint.toLowerCase() as keyof typeof FetchTokenConfig] != null ||
+    endpoint.toLowerCase().includes('llm gateway') ||
+    endpoint.toLowerCase().includes('llmgateway') ||
+    endpoint.toLowerCase().includes('devpass') ||
+    (typeof baseURL === 'string' && baseURL.includes('llmgateway.io'));
+
   if (
-    FetchTokenConfig[endpoint.toLowerCase() as keyof typeof FetchTokenConfig] &&
+    isTokenFetchable &&
     endpointConfig &&
     endpointConfig.models?.fetch &&
     !endpointTokenConfig

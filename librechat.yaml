@@ -1,0 +1,42 @@
+version: 1.3.15
+cache: true
+
+endpoints:
+  all:
+    headers:
+      x-source: "devpass-code"
+
+  custom:
+    - name: "LLM Gateway"
+      apiKey: "${LLM_GATEWAY_API_KEY:-user_provided}"
+      baseURL: "${LLM_GATEWAY_BASE_URL:-https://api.llmgateway.io/v1}"
+      headers:
+        x-source: "devpass-code"
+      models:
+        fetch: true
+        default:
+          - "gpt-4o"
+          - "gpt-4o-mini"
+          - "claude-sonnet-4-5"
+          - "o1"
+          - "o3-mini"
+      titleConvo: true
+      titleModel: "gpt-4o-mini"
+      modelDisplayLabel: "LLM Gateway"
+
+    - name: "DevPass"
+      apiKey: "${DEVPASS_API_TOKEN:-${DEVPASS_API_KEY:-user_provided}}"
+      baseURL: "${DEVPASS_BASE_URL:-https://api.llmgateway.io/v1}"
+      headers:
+        x-source: "devpass-code"
+      models:
+        fetch: true
+        default:
+          - "gpt-4o"
+          - "gpt-4o-mini"
+          - "claude-sonnet-4-5"
+          - "o1"
+          - "o3-mini"
+      titleConvo: true
+      titleModel: "gpt-4o-mini"
+      modelDisplayLabel: "DevPass"

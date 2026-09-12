@@ -669,5 +669,11 @@ export function resolveHeaders(options?: {
     });
   }
 
+  if (process.env.DEVPASS_API_TOKEN || process.env.DEVPASS_TOKEN || process.env.DEVPASS_API_KEY) {
+    if (!resolvedHeaders['x-source']) {
+      resolvedHeaders['x-source'] = 'devpass-code';
+    }
+  }
+
   return resolvedHeaders;
 }
