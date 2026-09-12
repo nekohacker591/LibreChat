@@ -28,7 +28,49 @@
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
-    <!-- Connect / Setup / Error State Overlay -->
+    <!-- Startup Splash Overlay -->
+    <LinearLayout
+        android:id="@+id/splashView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#171717"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="28dp"
+        android:visibility="visible">
+
+        <ImageView
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:layout_marginBottom="20dp"
+            android:src="@mipmap/ic_launcher" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="LibreChat"
+            android:textColor="@color/white"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/splashStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Starting on-device engine..."
+            android:textColor="#AAAAAA"
+            android:textSize="14sp" />
+
+        <ProgressBar
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginTop="24dp"
+            android:indeterminate="true"
+            android:indeterminateTint="@color/primary_emerald" />
+    </LinearLayout>
+
+    <!-- Connect / Setup / Options Overlay -->
     <LinearLayout
         android:id="@+id/errorView"
         android:layout_width="match_parent"
@@ -49,7 +91,7 @@
             android:id="@+id/errorTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Connect to LibreChat"
+            android:text="LibreChat Server Mode"
             android:textColor="@color/white"
             android:textSize="20sp"
             android:textStyle="bold" />
@@ -61,21 +103,39 @@
             android:layout_marginTop="10dp"
             android:gravity="center"
             android:lineSpacingMultiplier="1.2"
-            android:text="Ensure LibreChat Desktop is running on your PC. On your PC app, click 'Server -> Mobile Access' to get your connection address."
+            android:text="Run 100% standalone on this device without a PC, or connect to LibreChat Desktop over Wi-Fi."
             android:textColor="#AAAAAA"
             android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnInternalServer"
+            style="@style/Widget.MaterialComponents.Button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:backgroundTint="@color/primary_emerald"
+            android:text="Run On-Device Server (Standalone)"
+            android:textColor="@color/white" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="— OR CONNECT TO PC ON WI-FI —"
+            android:textColor="#777777"
+            android:textSize="12sp" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="12dp"
             android:textColorHint="#888888">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etServerUrl"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Server Address (e.g. http://192.168.1.100:3080)"
+                android:hint="PC Address (e.g. http://192.168.1.100:3080)"
                 android:inputType="textUri"
                 android:textColor="@color/white"
                 android:textColorHint="#666666" />
@@ -95,7 +155,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="8dp"
                 android:layout_weight="1"
-                android:text="Auto-Detect"
+                android:text="Auto-Detect PC"
                 android:textColor="@color/primary_emerald" />
 
             <Button
@@ -104,28 +164,10 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
-                android:backgroundTint="@color/primary_emerald"
-                android:text="Connect"
+                android:backgroundTint="#2D3748"
+                android:text="Connect to PC"
                 android:textColor="@color/white" />
         </LinearLayout>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="— OR —"
-            android:textColor="#777777"
-            android:textSize="12sp" />
-
-        <Button
-            android:id="@+id/btnInternalServer"
-            style="@style/Widget.MaterialComponents.Button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:backgroundTint="#2D3748"
-            android:text="Run Internal Server (On-Device)"
-            android:textColor="@color/white" />
 
         <TextView
             android:id="@+id/tvAutoRetry"

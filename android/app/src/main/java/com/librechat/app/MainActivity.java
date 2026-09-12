@@ -64,6 +64,7 @@ public class MainActivity extends AppCompatActivity {
     private ProgressBar progressBar;
     private SwipeRefreshLayout swipeRefreshLayout;
     private LinearLayout errorView;
+    private LinearLayout splashView;
     private EditText etServerUrl;
     private Button btnAutoDetect;
     private Button btnConnect;
@@ -95,16 +96,17 @@ public class MainActivity extends AppCompatActivity {
         setupBackPressedHandler();
         checkPermissions();
 
-        boolean useInternal = prefs.getBoolean(PREF_USE_INTERNAL_SERVER, false);
+        // Default to running internal server on device out-of-the-box
+        boolean useInternal = prefs.getBoolean(PREF_USE_INTERNAL_SERVER, true);
         if (useInternal) {
             startInternalServer();
         } else {
             String savedUrl = prefs.getString(PREF_SERVER_URL, null);
             if (savedUrl != null && !savedUrl.isEmpty()) {
+                if (splashView != null) splashView.setVisibility(View.GONE);
                 loadUrl(savedUrl);
             } else {
-                // First run: show connection setup
-                showConnectionView("Welcome! Choose to run internally on this device or connect to your PC:");
+                startInternalServer();
             }
         }
 
@@ -125,10 +127,10 @@ public class MainActivity extends AppCompatActivity {
             errorView.setVisibility(View.GONE);
             webView.setVisibility(View.VISIBLE);
             loadUrl(internalUrl);
-            Toast.makeText(this, "Running on internal server (On-Device)", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Log.e("MainActivity", "Failed to start internal server", e);
-            Toast.makeText(this, "Failed to start internal server: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            if (splashView != null) splashView.setVisibility(View.GONE);
+            showConnectionView("Could not start on-device server: " + e.getMessage());
         }
     }
 
@@ -137,6 +139,7 @@ public class MainActivity extends AppCompatActivity {
         progressBar = findViewById(R.id.progressBar);
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
         errorView = findViewById(R.id.errorView);
+        splashView = findViewById(R.id.splashView);
         etServerUrl = findViewById(R.id.etServerUrl);
         btnAutoDetect = findViewById(R.id.btnAutoDetect);
         btnConnect = findViewById(R.id.btnConnect);
@@ -169,6 +172,8 @@ public class MainActivity extends AppCompatActivity {
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
@@ -187,6 +192,9 @@ public class MainActivity extends AppCompatActivity {
                 progressBar.setVisibility(View.GONE);
                 swipeRefreshLayout.setRefreshing(false);
                 cancelRetryTimer();
+                if (splashView != null) {
+                    splashView.setVisibility(View.GONE);
+                }
             }
 
             @Override
@@ -194,8 +202,20 @@ public class MainActivity extends AppCompatActivity {
                 if (request.isForMainFrame()) {
                     progressBar.setVisibility(View.GONE);
                     swipeRefreshLayout.setRefreshing(false);
-                    showConnectionView("Could not connect to server (" + error.getDescription() + ")");
-                    startAutoRetry();
+                    boolean internal = prefs.getBoolean(PREF_USE_INTERNAL_SERVER, true);
+                    if (internal) {
+                        mainHandler.postDelayed(() -> {
+                            if (localServer != null && localServer.isAlive()) {
+                                loadUrl("http://127.0.0.1:8080");
+                            } else {
+                                startInternalServer();
+                            }
+                        }, 500);
+                    } else {
+                        if (splashView != null) splashView.setVisibility(View.GONE);
+                        showConnectionView("Could not connect to PC server (" + error.getDescription() + ")");
+                        startAutoRetry();
+                    }
                 }
             }
         });
@@ -207,6 +227,12 @@ public class MainActivity extends AppCompatActivity {
                 if (newProgress == 100) {
                     progressBar.setVisibility(View.GONE);
                 }
+            }
+
+            @Override
+            public boolean onConsoleMessage(android.webkit.ConsoleMessage consoleMessage) {
+                Log.d("LibreChatWeb", consoleMessage.message() + " [" + consoleMessage.sourceId() + ":" + consoleMessage.lineNumber() + "]");
+                return true;
             }
 
             @Override
@@ -240,6 +266,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showConnectionView(String reason) {
         cancelRetryTimer();
+        if (splashView != null) splashView.setVisibility(View.GONE);
         webView.setVisibility(View.GONE);
         errorView.setVisibility(View.VISIBLE);
 
@@ -247,7 +274,7 @@ public class MainActivity extends AppCompatActivity {
         etServerUrl.setText(current);
         TextView tvMsg = findViewById(R.id.errorMessage);
         if (tvMsg != null && reason != null) {
-            tvMsg.setText(reason + "\n\nMake sure LibreChat is running on your PC or enter your server URL below.");
+            tvMsg.setText(reason);
         }
     }
 

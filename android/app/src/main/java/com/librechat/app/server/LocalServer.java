@@ -95,8 +95,30 @@ public class LocalServer extends NanoHTTPD {
             JSONObject config = new JSONObject();
             config.put("appTitle", "LibreChat");
             config.put("serverDomain", "http://127.0.0.1:" + getListeningPort());
+            config.put("emailLoginEnabled", false);
             config.put("registrationEnabled", false);
+            config.put("socialLoginEnabled", false);
             config.put("socialLogins", new JSONArray());
+            config.put("sharedLinksEnabled", false);
+            config.put("publicSharedLinksEnabled", false);
+            config.put("openidLoginEnabled", false);
+            config.put("samlLoginEnabled", false);
+            config.put("passwordResetEnabled", false);
+
+            JSONObject interfaceObj = new JSONObject();
+            interfaceObj.put("endpointsMenu", true);
+            interfaceObj.put("modelSelect", true);
+            interfaceObj.put("parameters", true);
+            interfaceObj.put("sidePanel", true);
+            interfaceObj.put("presets", true);
+            interfaceObj.put("prompts", true);
+            interfaceObj.put("bookmarks", true);
+            interfaceObj.put("multiConvo", false);
+            config.put("interface", interfaceObj);
+
+            JSONObject modelSpecs = new JSONObject();
+            modelSpecs.put("list", new JSONArray());
+            config.put("modelSpecs", modelSpecs);
 
             JSONObject endpoints = new JSONObject();
 
@@ -117,7 +139,36 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", config.toString());
         }
 
-        // 2. Endpoints
+        // 2. Auth: Refresh and Login
+        if (uri.equals("/api/auth/refresh") || uri.equals("/api/auth/login")) {
+            JSONObject authResp = new JSONObject();
+            authResp.put("token", "local-session-token-librechat");
+            JSONObject user = new JSONObject();
+            user.put("id", "local-user");
+            user.put("_id", "local-user");
+            user.put("name", "Local User");
+            user.put("username", "user");
+            user.put("email", "user@librechat.local");
+            user.put("role", "USER");
+            user.put("plugins", new JSONArray());
+            authResp.put("user", user);
+            return newFixedLengthResponse(Response.Status.OK, "application/json", authResp.toString());
+        }
+
+        // 3. User profile
+        if (uri.equals("/api/user")) {
+            JSONObject user = new JSONObject();
+            user.put("id", "local-user");
+            user.put("_id", "local-user");
+            user.put("name", "Local User");
+            user.put("username", "user");
+            user.put("email", "user@librechat.local");
+            user.put("role", "USER");
+            user.put("plugins", new JSONArray());
+            return newFixedLengthResponse(Response.Status.OK, "application/json", user.toString());
+        }
+
+        // 4. Endpoints
         if (uri.equals("/api/endpoints")) {
             JSONObject endpoints = new JSONObject();
 
@@ -136,7 +187,7 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", endpoints.toString());
         }
 
-        // 3. Models
+        // 5. Models
         if (uri.equals("/api/models")) {
             JSONArray modelsList = fetchModelsFromGateway();
             JSONObject modelsObj = new JSONObject();
@@ -145,20 +196,61 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", modelsObj.toString());
         }
 
-        // 4. User profile
-        if (uri.equals("/api/user")) {
-            JSONObject user = new JSONObject();
-            user.put("id", "local-user");
-            user.put("_id", "local-user");
-            user.put("name", "Local User");
-            user.put("username", "user");
-            user.put("email", "user@librechat.local");
-            user.put("role", "USER");
-            user.put("plugins", new JSONArray());
-            return newFixedLengthResponse(Response.Status.OK, "application/json", user.toString());
+        // 6. Presets
+        if (uri.equals("/api/presets")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
         }
 
-        // 5. Conversations
+        // 7. Prompts
+        if (uri.startsWith("/api/prompts")) {
+            JSONObject prompts = new JSONObject();
+            prompts.put("prompts", new JSONArray());
+            prompts.put("pages", 1);
+            prompts.put("pageNumber", 1);
+            return newFixedLengthResponse(Response.Status.OK, "application/json", prompts.toString());
+        }
+
+        // 8. Banner
+        if (uri.equals("/api/banner")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"display\":false}");
+        }
+
+        // 9. Balance
+        if (uri.equals("/api/balance")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"balance\":\"0\"}");
+        }
+
+        // 10. Search enabled
+        if (uri.equals("/api/search/enable")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "false");
+        }
+
+        // 11. Plugins
+        if (uri.startsWith("/api/plugins") || uri.equals("/api/user/plugins")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
+        }
+
+        // 12. Agents & Assistants
+        if (uri.startsWith("/api/agents") || uri.startsWith("/api/assistants")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"data\":[]}");
+        }
+
+        // 13. Files
+        if (uri.startsWith("/api/files")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"files\":[]}");
+        }
+
+        // 14. Token config
+        if (uri.equals("/api/endpoints/token-config")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{}");
+        }
+
+        // 15. Tokenizer
+        if (uri.equals("/api/tokenizer")) {
+            return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"count\":1}");
+        }
+
+        // 16. Conversations
         if (uri.equals("/api/convos")) {
             if (Method.GET.equals(method)) {
                 JSONObject res = new JSONObject();
@@ -169,14 +261,14 @@ public class LocalServer extends NanoHTTPD {
             }
         }
 
-        // 6. Delete conversation
+        // 17. Delete conversation
         if (uri.startsWith("/api/convos/") && Method.DELETE.equals(method)) {
             String convoId = uri.substring("/api/convos/".length());
             dbHelper.deleteConversation(convoId);
             return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"message\":\"Deleted\"}");
         }
 
-        // 7. Messages
+        // 18. Messages
         if (uri.startsWith("/api/messages/")) {
             String convoId = uri.substring("/api/messages/".length());
             JSONObject res = new JSONObject();
@@ -184,7 +276,7 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", res.toString());
         }
 
-        // 8. Keys
+        // 19. Keys
         if (uri.startsWith("/api/keys")) {
             if (Method.POST.equals(method) && postData != null) {
                 try {
@@ -207,7 +299,7 @@ public class LocalServer extends NanoHTTPD {
             }
         }
 
-        // 9. Chat Streaming Proxy (/api/ask/custom or /api/ask or /api/chat/completions)
+        // 20. Chat Streaming Proxy (/api/ask/custom or /api/ask or /api/chat/completions)
         if (uri.startsWith("/api/ask") || uri.startsWith("/api/chat")) {
             return handleChatStream(postData);
         }
@@ -433,13 +525,17 @@ public class LocalServer extends NanoHTTPD {
             addCorsHeaders(resp);
             return resp;
         } catch (IOException e) {
-            // SPA fallback: return index.html for unknown frontend routes
-            try {
-                InputStream is = am.open("www/index.html");
-                Response resp = newChunkedResponse(Response.Status.OK, "text/html", is);
-                addCorsHeaders(resp);
-                return resp;
-            } catch (IOException fallbackErr) {
+            // SPA fallback: ONLY return index.html for navigation routes (not file assets like .js, .css, .png, etc.)!
+            if (!uri.contains(".")) {
+                try {
+                    InputStream is = am.open("www/index.html");
+                    Response resp = newChunkedResponse(Response.Status.OK, "text/html; charset=utf-8", is);
+                    addCorsHeaders(resp);
+                    return resp;
+                } catch (IOException fallbackErr) {
+                    return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found");
+                }
+            } else {
                 return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "File not found: " + uri);
             }
         }
