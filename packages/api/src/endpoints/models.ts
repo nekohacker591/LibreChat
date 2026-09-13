@@ -289,9 +289,21 @@ export async function fetchModels({
     }
     const isLLMGateway =
       typeof baseURL === 'string' &&
-      (baseURL.includes('llmgateway.io') || headers?.['x-source'] === 'devpass-code');
-    if (isLLMGateway && !url.searchParams.has('mapped')) {
-      url.searchParams.set('mapped', 'true');
+      (baseURL.includes('llmgateway.io') ||
+        headers?.['x-source'] === 'devpass-code' ||
+        headers?.['X-Source'] === 'devpass-code' ||
+        name.toLowerCase().includes('llm gateway') ||
+        name.toLowerCase().includes('devpass'));
+    if (isLLMGateway) {
+      if (!options.headers['x-source'] && !options.headers['X-Source']) {
+        options.headers['x-source'] = 'devpass-code';
+      }
+      if (!options.headers['User-Agent'] && !options.headers['user-agent']) {
+        options.headers['User-Agent'] = 'devpass-code/1.18.11';
+      }
+      if (!url.searchParams.has('mapped')) {
+        url.searchParams.set('mapped', 'true');
+      }
     }
     applyAxiosProxyConfig(options, url);
     applyUserProvidedBaseURLProtection(options, ssrfAgents);

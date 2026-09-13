@@ -669,9 +669,20 @@ export function resolveHeaders(options?: {
     });
   }
 
-  if (process.env.DEVPASS_API_TOKEN || process.env.DEVPASS_TOKEN || process.env.DEVPASS_API_KEY) {
-    if (!resolvedHeaders['x-source']) {
+  if (
+    process.env.DEVPASS_API_TOKEN ||
+    process.env.DEVPASS_TOKEN ||
+    process.env.DEVPASS_API_KEY ||
+    process.env.LLM_GATEWAY_API_KEY ||
+    process.env.LLMGATEWAY_API_KEY ||
+    resolvedHeaders['x-source'] === 'devpass-code' ||
+    resolvedHeaders['X-Source'] === 'devpass-code'
+  ) {
+    if (!resolvedHeaders['x-source'] && !resolvedHeaders['X-Source']) {
       resolvedHeaders['x-source'] = 'devpass-code';
+    }
+    if (!resolvedHeaders['User-Agent'] && !resolvedHeaders['user-agent']) {
+      resolvedHeaders['User-Agent'] = 'devpass-code/1.18.11';
     }
   }
 

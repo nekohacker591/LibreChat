@@ -326,6 +326,22 @@ export async function initializeCustom(
     ...customOptions,
   };
 
+  const isLLMGatewayOrDevPass =
+    endpoint.toLowerCase().includes('llm gateway') ||
+    endpoint.toLowerCase().includes('llmgateway') ||
+    endpoint.toLowerCase().includes('devpass') ||
+    (typeof baseURL === 'string' && baseURL.includes('llmgateway.io'));
+  if (isLLMGatewayOrDevPass) {
+    const headers = { ...((clientOptions.headers as Record<string, string>) || {}) };
+    if (!headers['x-source'] && !headers['X-Source']) {
+      headers['x-source'] = 'devpass-code';
+    }
+    if (!headers['User-Agent'] && !headers['user-agent']) {
+      headers['User-Agent'] = 'devpass-code/1.18.11';
+    }
+    clientOptions.headers = headers;
+  }
+
   const modelOptions = { ...(model_parameters ?? {}), user: userId };
   if (
     endpoint.toLowerCase().includes('devpass') &&

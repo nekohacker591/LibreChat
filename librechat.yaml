@@ -5,6 +5,7 @@ endpoints:
   all:
     headers:
       x-source: "devpass-code"
+      User-Agent: "devpass-code/1.18.11"
 
   custom:
     - name: "LLM Gateway"
@@ -12,6 +13,7 @@ endpoints:
       baseURL: "${LLM_GATEWAY_BASE_URL:-https://api.llmgateway.io/v1}"
       headers:
         x-source: "devpass-code"
+        User-Agent: "devpass-code/1.18.11"
       models:
         fetch: true
         default:
@@ -30,6 +32,7 @@ endpoints:
       baseURL: "${DEVPASS_BASE_URL:-https://api.llmgateway.io/v1}"
       headers:
         x-source: "devpass-code"
+        User-Agent: "devpass-code/1.18.11"
       models:
         fetch: true
         default:

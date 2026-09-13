@@ -32,6 +32,8 @@ import okhttp3.ResponseBody;
 public class LocalServer extends NanoHTTPD {
 
     private static final String TAG = "LocalServer";
+    private static final String X_SOURCE_HEADER = "devpass-code";
+    private static final String USER_AGENT_DEVPASS = "devpass-code/1.18.11";
     private final Context context;
     private final LocalDatabaseHelper dbHelper;
     private final OkHttpClient httpClient;
@@ -762,7 +764,8 @@ public class LocalServer extends NanoHTTPD {
 
                     Request.Builder reqBuilder = new Request.Builder()
                             .url("https://api.llmgateway.io/v1/chat/completions")
-                            .addHeader("x-source", "devpass-code")
+                            .addHeader("x-source", X_SOURCE_HEADER)
+                            .addHeader("User-Agent", USER_AGENT_DEVPASS)
                             .post(RequestBody.create(MediaType.parse("application/json"), outboundPayload.toString()));
 
                     if (!token.isEmpty()) {
@@ -977,7 +980,8 @@ public class LocalServer extends NanoHTTPD {
 
             Request.Builder reqBuilder = new Request.Builder()
                     .url("https://api.llmgateway.io/v1/chat/completions")
-                    .addHeader("x-source", "devpass-code")
+                    .addHeader("x-source", X_SOURCE_HEADER)
+                    .addHeader("User-Agent", USER_AGENT_DEVPASS)
                     .post(RequestBody.create(MediaType.parse("application/json"), outboundPayload.toString()));
 
             if (!token.isEmpty()) {
@@ -1100,7 +1104,8 @@ public class LocalServer extends NanoHTTPD {
         try {
             Request req = new Request.Builder()
                     .url("https://api.llmgateway.io/v1/models?mapped=true")
-                    .addHeader("x-source", "devpass-code")
+                    .addHeader("x-source", X_SOURCE_HEADER)
+                    .addHeader("User-Agent", USER_AGENT_DEVPASS)
                     .get()
                     .build();
 
