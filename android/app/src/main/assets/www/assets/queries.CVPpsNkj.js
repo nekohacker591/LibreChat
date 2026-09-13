@@ -1,0 +1,1 @@
+import{_ as e}from"./tanstack-vendor.C7oK5bXW.js";import{Xh as t,vg as n}from"./hooks.lOlnNzBN.js";var r=(r,i)=>e([t.insights,r],()=>n.getInsights(r),{keepPreviousData:!0,refetchOnWindowFocus:!1,...i}),i=(r,i)=>e([t.insightsAccess,r??`anonymous`],()=>n.getInsightsAccess(),{retry:!1,staleTime:6e4,refetchOnWindowFocus:!1,...i});export{r as n,i as t};
