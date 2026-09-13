@@ -18,6 +18,7 @@ import {
   eReasoningResponseKeySchema,
 } from './schemas';
 import { ComponentTypes, SettingTypes, OptionTypes } from './generate';
+import { CODE_ENVIRONMENT_DECISION_VERSION } from './code/workspace';
 import { MAX_SUBAGENTS, MAX_SUBAGENTS_CEILING } from './limits';
 import { STATEFUL_CODE_ENVIRONMENTS } from './stateful-code';
 import { specsConfigSchema, TSpecsConfig } from './models';
@@ -1201,6 +1202,23 @@ export const agentsEndpointSchema = baseEndpointSchema
         .max(MAX_SUBAGENTS_CEILING)
         .optional()
         .default(MAX_SUBAGENTS),
+      /** Run-scoped file access for explicitly opted-in subagent delegations. */
+      fileSharing: z
+        .object({
+          enabled: z.boolean().optional().default(false),
+          allowSiblingSharing: z.boolean().optional().default(false),
+          maxFiles: z.number().int().min(1).max(1_000).optional().default(100),
+          /** Aggregate disk budget for private output versions retained during a run. */
+          maxPrivateBytes: z
+            .number()
+            .int()
+            .min(1)
+            .max(10_737_418_240)
+            .optional()
+            .default(268_435_456),
+          ttlMs: z.number().int().min(1).max(86_400_000).optional().default(3_600_000),
+        })
+        .optional(),
       /** Maximum concurrent Code API uploads per route and authenticated principal. */
       codeApiUploadConcurrency: z.number().int().min(1).max(100).optional().default(3),
       /** Maximum wall-clock time spent waiting on Code API rate limits per operation. */
@@ -1841,6 +1859,81 @@ const mcpServersSchema = z
 
 export type TMcpServersConfig = z.infer<typeof mcpServersSchema>;
 
+/** Values the trace viewer uses for any `interface.traceViewer` field left unset. */
+export const traceViewerDefaults = {
+  enabled: false,
+  showInputOutput: false,
+  maxRecords: 1000,
+  maxContentLength: 50_000,
+  requestsPerMinute: 30,
+  requestTimeoutMs: 10_000,
+} as const;
+
+type TraceViewerLimitField =
+  | 'maxRecords'
+  | 'maxContentLength'
+  | 'requestsPerMinute'
+  | 'requestTimeoutMs';
+
+/** Inclusive bounds for the numeric `interface.traceViewer` fields. */
+export const traceViewerLimits: Readonly<
+  Record<TraceViewerLimitField, { readonly min: number; readonly max: number }>
+> = {
+  maxRecords: { min: 1, max: 10_000 },
+  maxContentLength: { min: 1, max: 1_000_000 },
+  requestsPerMinute: { min: 1, max: 1000 },
+  requestTimeoutMs: { min: 1000, max: 300_000 },
+};
+
+const boundedIntegerSchema = (field: TraceViewerLimitField) =>
+  z.number().int().min(traceViewerLimits[field].min).max(traceViewerLimits[field].max).optional();
+
+const traceViewerSchema = z.object({
+  /** Shows the conversation trace control for traces this deployment exported. */
+  enabled: z.boolean().optional(),
+  /** Returns observation input, output and metadata in the record inspector. */
+  showInputOutput: z.boolean().optional(),
+  /** Observations read from the tracing backend per request. */
+  maxRecords: boundedIntegerSchema('maxRecords'),
+  /** Characters kept from each input, output and metadata value before truncation. */
+  maxContentLength: boundedIntegerSchema('maxContentLength'),
+  /** Trace reads one user may start per minute. */
+  requestsPerMinute: boundedIntegerSchema('requestsPerMinute'),
+  /** Budget for each round trip to the tracing backend, in milliseconds. */
+  requestTimeoutMs: boundedIntegerSchema('requestTimeoutMs'),
+});
+
+export type TTraceViewerConfig = z.infer<typeof traceViewerSchema>;
+export type TResolvedTraceViewerConfig = {
+  enabled: boolean;
+  showInputOutput: boolean;
+} & Record<TraceViewerLimitField, number>;
+
+function boundedInteger(value: unknown, field: TraceViewerLimitField): number {
+  const { min, max } = traceViewerLimits[field];
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= min
+    ? Math.min(value, max)
+    : traceViewerDefaults[field];
+}
+
+/**
+ * Fills unset or invalid `interface.traceViewer` fields from
+ * {@link traceViewerDefaults}. Admin config overrides reach runtime without
+ * schema validation, so every consumer reads the section through this.
+ */
+export function resolveTraceViewerConfig(
+  config?: Partial<Record<keyof TTraceViewerConfig, unknown>> | null,
+): TResolvedTraceViewerConfig {
+  return {
+    enabled: config?.enabled === true,
+    showInputOutput: config?.showInputOutput === true,
+    maxRecords: boundedInteger(config?.maxRecords, 'maxRecords'),
+    maxContentLength: boundedInteger(config?.maxContentLength, 'maxContentLength'),
+    requestsPerMinute: boundedInteger(config?.requestsPerMinute, 'requestsPerMinute'),
+    requestTimeoutMs: boundedInteger(config?.requestTimeoutMs, 'requestTimeoutMs'),
+  };
+}
+
 export enum RetentionMode {
   ALL = 'all',
   TEMPORARY = 'temporary',
@@ -1916,6 +2009,7 @@ export const interfaceSchema = z
       .optional(),
     fileSearch: z.boolean().optional(),
     fileCitations: z.boolean().optional(),
+    traceViewer: traceViewerSchema.optional(),
     /** Tool keys (and `'mcp'` or an MCP server name) pinned to the prompt bar by default */
     defaultPinnedTools: z.array(z.string()).optional(),
     buildInfo: z.boolean().optional(),
@@ -2099,6 +2193,9 @@ export type TStartupConfig = {
   /** Manual context compaction, gated by the same `summarization.enabled`
    *  switch that governs the automatic detour. */
   compactionEnabled?: boolean;
+  /** Conversation-owned code-environment decision protocol supported by the API.
+   * Clients must not emit selection-less decisions unless this is advertised. */
+  codeEnvironmentDecisionVersion?: typeof CODE_ENVIRONMENT_DECISION_VERSION;
   interface?: TInterfaceConfig;
   turnstile?: TTurnstileConfig;
   balance?: TBalanceConfig;
@@ -2709,6 +2806,15 @@ export const configSchema = z.object({
             .positive()
             .max(5 * 60_000)
             .default(3_000),
+          /** How long past `discoveryTimeoutMs` a stalled discovery may hold its catalog slot and
+           * coalesced requests. It is never cancelled, so OAuth tokens it redeemed still persist,
+           * and no other discovery for the same server state starts until it settles. */
+          discoverySettleGraceMs: z
+            .number()
+            .int()
+            .nonnegative()
+            .max(5 * 60_000)
+            .default(10_000),
           reauthRetryMs: z
             .number()
             .int()
@@ -2716,6 +2822,10 @@ export const configSchema = z.object({
             .max(24 * 60 * 60_000)
             .default(30 * 60_000),
           maxStateEntries: z.number().int().positive().max(1_000_000).default(10_000),
+          /** Process-wide: how many discoveries released past `discoverySettleGraceMs` may still be
+           * running before recovery starts no new discovery until one settles. The default matches
+           * the three catalog slots a stalled dependency could hold before discoveries were released. */
+          maxDetachedDiscoveries: z.number().int().positive().max(1_000).default(3),
           generationReadTimeoutMs: z.number().int().positive().max(10_000).default(500),
           authorizationFenceRetryMs: z
             .array(z.number().int().nonnegative().max(60_000))
@@ -3503,6 +3613,10 @@ export enum ErrorTypes {
    */
   MODEL_RATE_LIMIT = 'model_rate_limit',
   /**
+   * An agent model provider failed and the run could not recover.
+   */
+  UPSTREAM_MODEL_ERROR = 'upstream_model_error',
+  /**
    * Context pruning removed every message; nothing fits the configured context window
    */
   EMPTY_MESSAGES = 'empty_messages',
@@ -3660,7 +3774,7 @@ export enum Constants {
    */
   VERSION = '__LIBRECHAT_VERSION__',
   /** Key for the Custom Config's version (librechat.yaml). */
-  CONFIG_VERSION = '1.3.15',
+  CONFIG_VERSION = '1.3.16',
   /** Standard value for the first message's `parentMessageId` value, to indicate no parent exists. */
   NO_PARENT = '00000000-0000-0000-0000-000000000000',
   /** Standard value to use whatever the submission prelim. `responseMessageId` is */
