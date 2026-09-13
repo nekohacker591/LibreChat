@@ -19,6 +19,7 @@ import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm
 import { extractDefaultParams } from '~/endpoints/openai/llm';
 import { isUserProvided, checkUserKeyExpiry } from '~/utils';
 import { getOpenAIConfig } from '~/endpoints/openai/config';
+import { applyOpenCodeReasoningEffort } from './reasoning';
 import { getScopedTokenConfigKey } from '~/endpoints/keys';
 import { getCustomEndpointConfig } from '~/app/config';
 import { resolveEndpointRuntime } from '~/types';
@@ -410,6 +411,12 @@ export async function initializeCustom(
       allowedAddresses: appConfig?.endpoints?.allowedAddresses,
     });
     options.endpointTokenConfig = endpointTokenConfig;
+    if (isOpenCodeAnthropic) {
+      /** OpenCode's gateway expects its own `reasoning_effort` field on the
+       *  Messages API; the native Anthropic heuristics ignore the shared
+       *  parameter for non-Claude model names. */
+      applyOpenCodeReasoningEffort(options, modelOptions.reasoning_effort);
+    }
   } else {
     if (isOpenCodeResponses) {
       modelOptions.useResponsesApi = true;

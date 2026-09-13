@@ -38,7 +38,6 @@ export const Banner = ({ onHeightChange }: { onHeightChange?: (height: number) =
 
   if (
     !banner ||
-    !banner.display ||
     !banner.message ||
     (banner.bannerId && !banner.persistable && hideBannerHint.includes(banner.bannerId))
   ) {

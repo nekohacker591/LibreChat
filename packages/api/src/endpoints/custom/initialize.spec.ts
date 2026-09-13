@@ -713,11 +713,13 @@ describe('initializeCustom – OpenCode routing and session headers', () => {
     baseURL = 'https://opencode.ai/zen/go/v1',
     model = 'deepseek-v4-flash',
     body = { conversationId: 'convo-1' },
+    modelParameters = {},
   }: {
     endpoint?: string;
     baseURL?: string;
     model?: string;
     body?: Record<string, unknown>;
+    modelParameters?: Record<string, unknown>;
   } = {}): BaseInitializeParams {
     mockGetCustomEndpointConfig.mockReturnValue({
       apiKey: 'sk-opencode',
@@ -732,7 +734,7 @@ describe('initializeCustom – OpenCode routing and session headers', () => {
         config: {},
       } as unknown as BaseInitializeParams['req'],
       endpoint,
-      model_parameters: { model },
+      model_parameters: { model, ...modelParameters },
       db: {
         getUserKeyValues: jest.fn().mockResolvedValue({ apiKey: 'sk-opencode' }),
         getUserKey: jest.fn(),
@@ -809,5 +811,66 @@ describe('initializeCustom – OpenCode routing and session headers', () => {
     expect(clientOptions.useResponsesApi).toBe(true);
     expect(clientOptions.modelOptions.useResponsesApi).toBe(true);
     expect((options.llmConfig as Record<string, unknown>).useResponsesApi).toBe(true);
+  });
+
+  it('forwards the reasoning level on the OpenAI-compatible path', async () => {
+    const params = createOpenCodeParams({ modelParameters: { reasoning_effort: 'medium' } });
+    await initializeCustom(params);
+
+    const clientOptions = mockGetOpenAIConfig.mock.calls[0][1] as {
+      modelOptions: Record<string, unknown>;
+    };
+    expect(clientOptions.modelOptions.reasoning_effort).toBe('medium');
+    expect(clientOptions.modelOptions.useResponsesApi).toBeUndefined();
+  });
+
+  it('forwards the reasoning level through the Responses API', async () => {
+    const params = createOpenCodeParams({
+      model: 'gpt-5.6-luna',
+      modelParameters: { reasoning_effort: 'max' },
+    });
+    await initializeCustom(params);
+
+    const clientOptions = mockGetOpenAIConfig.mock.calls[0][1] as {
+      useResponsesApi?: boolean;
+      modelOptions: Record<string, unknown>;
+    };
+    expect(clientOptions.useResponsesApi).toBe(true);
+    expect(clientOptions.modelOptions.useResponsesApi).toBe(true);
+    expect(clientOptions.modelOptions.reasoning_effort).toBe('max');
+  });
+
+  it('forwards the reasoning level to Anthropic-routed gateway models', async () => {
+    const params = createOpenCodeParams({
+      model: 'minimax-m3',
+      modelParameters: { reasoning_effort: 'high' },
+    });
+    const options = await initializeCustom(params);
+
+    expect(mockGetOpenAIConfig).not.toHaveBeenCalled();
+    const invocationKwargs = (options.llmConfig as { invocationKwargs?: Record<string, unknown> })
+      .invocationKwargs;
+    expect(invocationKwargs?.reasoning_effort).toBe('high');
+  });
+
+  it('forwards an explicit "none" reasoning level to Anthropic-routed gateway models', async () => {
+    const params = createOpenCodeParams({
+      model: 'minimax-m3',
+      modelParameters: { reasoning_effort: 'none' },
+    });
+    const options = await initializeCustom(params);
+
+    const invocationKwargs = (options.llmConfig as { invocationKwargs?: Record<string, unknown> })
+      .invocationKwargs;
+    expect(invocationKwargs?.reasoning_effort).toBe('none');
+  });
+
+  it('does not inject a reasoning level when the user leaves it on Auto', async () => {
+    const params = createOpenCodeParams({ model: 'minimax-m3' });
+    const options = await initializeCustom(params);
+
+    const invocationKwargs = (options.llmConfig as { invocationKwargs?: Record<string, unknown> })
+      .invocationKwargs;
+    expect(invocationKwargs?.reasoning_effort).toBeUndefined();
   });
 });
