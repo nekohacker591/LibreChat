@@ -58,6 +58,9 @@ function ensureEnv() {
     DOMAIN_SERVER: 'http://localhost:3080',
     NO_INDEX: 'true',
     LOCAL_USER: 'true',
+    /** This launcher runs exactly one server process; without the assertion the
+     *  scheduler refuses to arm and schedule write routes stay permanently 503. */
+    SCHEDULES_SINGLE_PROCESS: 'true',
   };
 
   let modified = false;

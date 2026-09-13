@@ -702,3 +702,112 @@ describe('initializeCustom – native Anthropic provider', () => {
     expect(options.provider).toBeUndefined();
   });
 });
+
+describe('initializeCustom – OpenCode routing and session headers', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function createOpenCodeParams({
+    endpoint = 'OpenCode Go',
+    baseURL = 'https://opencode.ai/zen/go/v1',
+    model = 'deepseek-v4-flash',
+    body = { conversationId: 'convo-1' },
+  }: {
+    endpoint?: string;
+    baseURL?: string;
+    model?: string;
+    body?: Record<string, unknown>;
+  } = {}): BaseInitializeParams {
+    mockGetCustomEndpointConfig.mockReturnValue({
+      apiKey: 'sk-opencode',
+      baseURL,
+      models: {},
+    });
+
+    return {
+      req: {
+        user: { id: 'user-1', email: 'user@example.com' },
+        body,
+        config: {},
+      } as unknown as BaseInitializeParams['req'],
+      endpoint,
+      model_parameters: { model },
+      db: {
+        getUserKeyValues: jest.fn().mockResolvedValue({ apiKey: 'sk-opencode' }),
+        getUserKey: jest.fn(),
+      } as unknown as BaseInitializeParams['db'],
+    };
+  }
+
+  it('adds OpenCode headers and the conversation session on the OpenAI-compatible path', async () => {
+    const params = createOpenCodeParams();
+    await initializeCustom(params);
+
+    expect(mockGetOpenAIConfig).toHaveBeenCalledTimes(1);
+    const clientOptions = mockGetOpenAIConfig.mock.calls[0][1] as {
+      headers: Record<string, string>;
+      modelOptions: Record<string, unknown>;
+      useResponsesApi?: boolean;
+    };
+    expect(clientOptions.headers['x-source']).toBe('opencode');
+    expect(clientOptions.headers['User-Agent']).toBe('opencode/1.18.30');
+    expect(clientOptions.headers['x-opencode-session']).toBe('convo-1');
+    /** The requested model survives the parameter spread */
+    expect(clientOptions.modelOptions.model).toBe('deepseek-v4-flash');
+    expect(clientOptions.useResponsesApi).toBeUndefined();
+  });
+
+  it('falls back to a random session id when the conversation is unknown', async () => {
+    const params = createOpenCodeParams({ body: {} });
+    await initializeCustom(params);
+
+    const clientOptions = mockGetOpenAIConfig.mock.calls[0][1] as {
+      headers: Record<string, string>;
+    };
+    expect(clientOptions.headers['x-opencode-session']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
+  it('routes minimax models on OpenCode Go through the native Anthropic client', async () => {
+    const params = createOpenCodeParams({ model: 'minimax-m3' });
+    const options = await initializeCustom(params);
+
+    expect(mockGetOpenAIConfig).not.toHaveBeenCalled();
+    expect(options.provider).toBe('anthropic');
+    expect(options.llmConfig).toHaveProperty('anthropicApiUrl', 'https://opencode.ai/zen/go');
+    const defaultHeaders = (
+      options.llmConfig as { clientOptions?: { defaultHeaders?: Record<string, string> } }
+    ).clientOptions?.defaultHeaders;
+    expect(defaultHeaders?.['x-source']).toBe('opencode');
+    expect(defaultHeaders?.['x-opencode-session']).toBe('convo-1');
+  });
+
+  it('routes claude models on OpenCode Zen through the native Anthropic client', async () => {
+    const params = createOpenCodeParams({
+      endpoint: 'OpenCode Zen',
+      baseURL: 'https://opencode.ai/zen/v1',
+      model: 'claude-sonnet-4-5',
+    });
+    const options = await initializeCustom(params);
+
+    expect(mockGetOpenAIConfig).not.toHaveBeenCalled();
+    expect(options.provider).toBe('anthropic');
+    expect(options.llmConfig).toHaveProperty('anthropicApiUrl', 'https://opencode.ai/zen');
+  });
+
+  it('routes gpt models on OpenCode Go through the Responses API', async () => {
+    const params = createOpenCodeParams({ model: 'gpt-5.6-luna' });
+    const options = await initializeCustom(params);
+
+    expect(mockGetOpenAIConfig).toHaveBeenCalledTimes(1);
+    const clientOptions = mockGetOpenAIConfig.mock.calls[0][1] as {
+      useResponsesApi?: boolean;
+      modelOptions: Record<string, unknown>;
+    };
+    expect(clientOptions.useResponsesApi).toBe(true);
+    expect(clientOptions.modelOptions.useResponsesApi).toBe(true);
+    expect((options.llmConfig as Record<string, unknown>).useResponsesApi).toBe(true);
+  });
+});

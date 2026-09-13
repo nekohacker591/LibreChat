@@ -271,7 +271,9 @@ export async function initializeCustom(
       endpoint.toLowerCase().includes('llm gateway') ||
       endpoint.toLowerCase().includes('llmgateway') ||
       endpoint.toLowerCase().includes('devpass') ||
-      (typeof baseURL === 'string' && baseURL.includes('llmgateway.io'));
+      endpoint.toLowerCase().includes('opencode') ||
+      (typeof baseURL === 'string' &&
+        (baseURL.includes('llmgateway.io') || baseURL.includes('opencode.ai')));
     const cachedConfig = isTokenFetchable && (await cache.get(tokenKey));
     endpointTokenConfig = (cachedConfig as EndpointTokenConfig) || undefined;
   }
@@ -281,14 +283,11 @@ export async function initializeCustom(
     endpoint.toLowerCase().includes('llm gateway') ||
     endpoint.toLowerCase().includes('llmgateway') ||
     endpoint.toLowerCase().includes('devpass') ||
-    (typeof baseURL === 'string' && baseURL.includes('llmgateway.io'));
+    endpoint.toLowerCase().includes('opencode') ||
+    (typeof baseURL === 'string' &&
+      (baseURL.includes('llmgateway.io') || baseURL.includes('opencode.ai')));
 
-  if (
-    isTokenFetchable &&
-    endpointConfig &&
-    endpointConfig.models?.fetch &&
-    !endpointTokenConfig
-  ) {
+  if (isTokenFetchable && endpointConfig && endpointConfig.models?.fetch && !endpointTokenConfig) {
     await fetchModels({
       apiKey,
       baseURL,
@@ -332,7 +331,8 @@ export async function initializeCustom(
     endpoint.toLowerCase().includes('llmgateway') ||
     endpoint.toLowerCase().includes('devpass') ||
     endpoint.toLowerCase().includes('opencode') ||
-    (typeof baseURL === 'string' && (baseURL.includes('llmgateway.io') || baseURL.includes('opencode.ai')));
+    (typeof baseURL === 'string' &&
+      (baseURL.includes('llmgateway.io') || baseURL.includes('opencode.ai')));
   if (isLLMGatewayOrDevPass) {
     const headers = { ...((clientOptions.headers as Record<string, string>) || {}) };
     if (!headers['x-source'] && !headers['X-Source']) {
@@ -350,18 +350,18 @@ export async function initializeCustom(
   if (isOpenCode) {
     const headers = { ...((clientOptions.headers as Record<string, string>) || {}) };
     if (!headers['x-opencode-session'] && !headers['X-Opencode-Session']) {
-      const sessionId =
-        (requestBody && typeof requestBody.conversationId === 'string' && requestBody.conversationId)
-          ? requestBody.conversationId
-          : (params as Record<string, unknown>).conversationId && typeof (params as Record<string, unknown>).conversationId === 'string'
-            ? ((params as Record<string, unknown>).conversationId as string)
-            : crypto.randomUUID();
-      headers['x-opencode-session'] = sessionId;
+      /** `RequestBody.conversationId` is the typed source; a random UUID keeps
+       *  session-scoped routing working for requests without a conversation. */
+      const conversationId = requestBody?.conversationId;
+      headers['x-opencode-session'] =
+        typeof conversationId === 'string' && conversationId.length > 0
+          ? conversationId
+          : crypto.randomUUID();
     }
     clientOptions.headers = headers;
   }
 
-  const modelOptions = { ...(model_parameters ?? {}), user: userId };
+  const modelOptions: Record<string, unknown> = { ...(model_parameters ?? {}), user: userId };
   if (
     endpoint.toLowerCase().includes('devpass') &&
     typeof modelOptions.model === 'string' &&
@@ -373,17 +373,23 @@ export async function initializeCustom(
   const isGo =
     endpoint.toLowerCase().includes('go') ||
     (typeof baseURL === 'string' && baseURL.includes('/go'));
-  const selectedModel = (typeof modelOptions.model === 'string' ? modelOptions.model : '').toLowerCase();
+  const selectedModel = (
+    typeof modelOptions.model === 'string' ? modelOptions.model : ''
+  ).toLowerCase();
 
   const isOpenCodeAnthropic =
     isOpenCode &&
     (isGo
-      ? selectedModel.startsWith('minimax') || selectedModel.startsWith('qwen') || selectedModel.startsWith('claude')
+      ? selectedModel.startsWith('minimax') ||
+        selectedModel.startsWith('qwen') ||
+        selectedModel.startsWith('claude')
       : selectedModel.startsWith('claude') || selectedModel.startsWith('qwen'));
 
   const isOpenCodeResponses =
     isOpenCode &&
-    (selectedModel.startsWith('muse') || selectedModel.startsWith('gpt') || selectedModel.startsWith('grok'));
+    (selectedModel.startsWith('muse') ||
+      selectedModel.startsWith('gpt') ||
+      selectedModel.startsWith('grok'));
 
   let options: InitializeResultBase;
   if (endpointConfig.provider === EModelEndpoint.anthropic || isOpenCodeAnthropic) {
@@ -406,7 +412,7 @@ export async function initializeCustom(
     options.endpointTokenConfig = endpointTokenConfig;
   } else {
     if (isOpenCodeResponses) {
-      (modelOptions as Record<string, unknown>).useResponsesApi = true;
+      modelOptions.useResponsesApi = true;
       clientOptions.useResponsesApi = true;
     }
     const finalClientOptions = {
