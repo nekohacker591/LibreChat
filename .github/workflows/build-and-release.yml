@@ -30,9 +30,7 @@ jobs:
 
       - name: Build & Package Windows Installer
         working-directory: electron
-        run: npm run dist:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist:win -- --publish never
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
@@ -65,12 +63,22 @@ jobs:
 
       - name: Build Android Release APK
         working-directory: android
+        env:
+          LIBRECHAT_STORE_PASSWORD: ${{ secrets.LIBRECHAT_STORE_PASSWORD }}
+          LIBRECHAT_KEY_PASSWORD: ${{ secrets.LIBRECHAT_KEY_PASSWORD }}
         run: |
           if [ -f "gradlew" ]; then
             ./gradlew assembleRelease --stacktrace
           else
             gradle assembleRelease --stacktrace
           fi
+
+      - name: Rename APK with release version
+        working-directory: android
+        run: |
+          APK_DIR=app/build/outputs/apk/release
+          VERSION=$(grep -oP 'versionName "\K[^"]+' app/build.gradle)
+          mv "$APK_DIR/app-release.apk" "$APK_DIR/LibreChat-v${VERSION}-release.apk"
 
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v4

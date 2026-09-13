@@ -31,7 +31,7 @@ import okhttp3.Response;
 
 public class UpdateManager {
 
-    private static final String DEFAULT_REPO = "danny-avila/LibreChat";
+    private static final String DEFAULT_REPO = "nekohacker591/LibreChat";
     private final Activity activity;
     private final OkHttpClient client;
     private final Handler mainHandler;

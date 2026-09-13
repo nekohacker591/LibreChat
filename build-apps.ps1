@@ -101,6 +101,11 @@ function Build-Android {
             $env:JAVA_HOME = $Jdk17
         }
     }
+    Write-Host "Using JAVA_HOME: $env:JAVA_HOME" -ForegroundColor Gray
+
+    $BuildGradle = Join-Path $AndroidDir "app\build.gradle"
+    $VersionName = (Select-String -Path $BuildGradle -Pattern 'versionName\s+"([^"]+)"').Matches[0].Groups[1].Value
+    $ApkName = "LibreChat-v$VersionName-release.apk"
 
     Push-Location $AndroidDir
     try {
@@ -121,7 +126,8 @@ function Build-Android {
                 $mb = [math]::Round($a.Length / 1048576, 2)
                 $msg = "  - " + $a.Name + " [" + $mb + " MB]"
                 Write-Host $msg -ForegroundColor White
-                Copy-Item -Path $a.FullName -Destination (Join-Path $ScriptDir "LibreChat-v1.0.0-release.apk") -Force
+                Copy-Item -Path $a.FullName -Destination (Join-Path $ScriptDir $ApkName) -Force
+                Write-Host "  -> Copied to $ApkName" -ForegroundColor Cyan
             }
         }
     }

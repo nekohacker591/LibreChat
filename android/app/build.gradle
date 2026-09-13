@@ -2,6 +2,39 @@ plugins {
     id 'com.android.application'
 }
 
+/**
+ * Signing credentials stay out of the repository. They are read from
+ * android/local.properties (untracked) or from the LIBRECHAT_STORE_PASSWORD /
+ * LIBRECHAT_KEY_PASSWORD environment variables used by CI. Keep
+ * android/app/my-release-key.jks in sync with the values you provide.
+ */
+def localProps = new Properties()
+def localPropsFile = rootProject.file('local.properties')
+if (localPropsFile.exists()) {
+    localPropsFile.withInputStream { localProps.load(it) }
+}
+
+def requireSigningSecret = { value, propertyName, envName ->
+    if (value == null || value.trim().isEmpty()) {
+        throw new GradleException(
+            "Missing signing secret '${propertyName}'. Add it to android/local.properties " +
+            "or set the ${envName} environment variable."
+        )
+    }
+    return value
+}
+
+def signingStorePassword = requireSigningSecret(
+    localProps.getProperty('librechat.storePassword') ?: System.getenv('LIBRECHAT_STORE_PASSWORD'),
+    'librechat.storePassword',
+    'LIBRECHAT_STORE_PASSWORD'
+)
+def signingKeyPassword = requireSigningSecret(
+    localProps.getProperty('librechat.keyPassword') ?: System.getenv('LIBRECHAT_KEY_PASSWORD'),
+    'librechat.keyPassword',
+    'LIBRECHAT_KEY_PASSWORD'
+)
+
 android {
     namespace 'com.librechat.app'
     compileSdk 34
@@ -19,9 +52,9 @@ android {
     signingConfigs {
         release {
             storeFile file('my-release-key.jks')
-            storePassword 'librechat2026'
+            storePassword signingStorePassword
             keyAlias 'my-alias'
-            keyPassword 'librechat2026'
+            keyPassword signingKeyPassword
             v1SigningEnabled true
             v2SigningEnabled true
         }

@@ -59,7 +59,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "LibreChat"
+      "shortcutName": "LibreChat",
+      "artifactName": "LibreChat-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "LibreChat-${version}.${ext}"
     },
     "publish": [
       {
