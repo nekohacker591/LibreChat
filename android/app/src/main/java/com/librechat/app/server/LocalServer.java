@@ -1093,6 +1093,56 @@ public class LocalServer extends NanoHTTPD {
         }
     }
 
+    private boolean isNonChatDevPassModel(String modelId, JSONObject architecture) {
+        if (modelId == null) return false;
+        String lower = modelId.toLowerCase(java.util.Locale.ROOT);
+        // Embeddings & rerank
+        if (lower.contains("embed") || lower.contains("bge-") || lower.contains("rerank")) {
+            return true;
+        }
+        // Image generation
+        if (lower.contains("image") ||
+            lower.contains("dall-e") ||
+            lower.contains("dalle") ||
+            lower.contains("flux") ||
+            lower.contains("diffusion") ||
+            lower.contains("midjourney") ||
+            lower.contains("imagen") ||
+            lower.contains("cogview") ||
+            lower.contains("seedream")) {
+            return true;
+        }
+        // Video generation
+        if (lower.contains("video") ||
+            lower.contains("veo") ||
+            lower.contains("kling") ||
+            lower.contains("wan-") ||
+            lower.contains("seedance") ||
+            lower.contains("hailuo") ||
+            lower.contains("sora") ||
+            lower.contains("luma") ||
+            lower.contains("gen-2") ||
+            lower.contains("gen-3") ||
+            lower.contains("runway") ||
+            lower.contains("animate") ||
+            lower.contains("svd")) {
+            return true;
+        }
+
+        if (architecture != null) {
+            JSONArray out = architecture.optJSONArray("output_modalities");
+            if (out != null) {
+                for (int i = 0; i < out.length(); i++) {
+                    String mod = out.optString(i, "").toLowerCase(java.util.Locale.ROOT);
+                    if (mod.equals("embedding") || mod.equals("rerank") || mod.equals("image") || mod.equals("video")) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     private void fetchModelsFromGateway() {
         synchronized (modelsLock) {
             if (isFetchingModels) {
@@ -1125,15 +1175,21 @@ public class LocalServer extends NanoHTTPD {
                                 continue;
                             }
 
-                            // LLM Gateway (Pay as you go): includes the provider name (e.g. openai/gpt-4o)
+                            // LLM Gateway (Pay as you go): includes all models with provider name (e.g. openai/gpt-4o, openai/gpt-image-2)
                             gatewayList.put(id);
+
+                            // DevPass: exclude embeddings, image generation, and video generation
+                            JSONObject arch = m.optJSONObject("architecture");
+                            if (isNonChatDevPassModel(id, arch)) {
+                                continue;
+                            }
 
                             // DevPass: remove the provider name (e.g. openai/gpt-4o -> gpt-4o)
                             String stripped = id;
                             if (stripped.contains("/")) {
                                 stripped = stripped.substring(stripped.lastIndexOf('/') + 1);
                             }
-                            if (!stripped.isEmpty() && !stripped.equalsIgnoreCase("custom")) {
+                            if (!stripped.isEmpty() && !stripped.equalsIgnoreCase("custom") && !isNonChatDevPassModel(stripped, arch)) {
                                 devPassSet.add(stripped);
                             }
                         }

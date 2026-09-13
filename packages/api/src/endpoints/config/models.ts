@@ -51,6 +51,51 @@ export interface LoadConfigModelsDeps {
   fetchModels?: (params: FetchModelsParams) => Promise<string[]>;
 }
 
+/**
+ * Checks if a model represents an embedding, image generation, or video generation model.
+ * Such models are excluded from DevPass tier per provider specifications.
+ */
+export function isNonChatDevPassModel(modelId: string): boolean {
+  const id = (modelId || '').toLowerCase();
+  // Embeddings & rerank
+  if (id.includes('embed') || id.includes('bge-') || id.includes('rerank')) {
+    return true;
+  }
+  // Image generation
+  if (
+    id.includes('image') ||
+    id.includes('dall-e') ||
+    id.includes('dalle') ||
+    id.includes('flux') ||
+    id.includes('diffusion') ||
+    id.includes('midjourney') ||
+    id.includes('imagen') ||
+    id.includes('cogview') ||
+    id.includes('seedream')
+  ) {
+    return true;
+  }
+  // Video generation
+  if (
+    id.includes('video') ||
+    id.includes('veo') ||
+    id.includes('kling') ||
+    id.includes('wan-') ||
+    id.includes('seedance') ||
+    id.includes('hailuo') ||
+    id.includes('sora') ||
+    id.includes('luma') ||
+    id.includes('gen-2') ||
+    id.includes('gen-3') ||
+    id.includes('runway') ||
+    id.includes('animate') ||
+    id.includes('svd')
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function createLoadConfigModels(deps: LoadConfigModelsDeps) {
   const { getAppConfig, getUserKeyValues, fetchModels = defaultFetchModels } = deps;
 
@@ -298,10 +343,14 @@ export function createLoadConfigModels(deps: LoadConfigModelsDeps) {
         const defaults = (endpoint.models?.default ?? []).map((m) =>
           typeof m === 'string' ? m : m.name,
         );
+
         if (name.toLowerCase().includes('devpass')) {
           const stripped = Array.from(
             new Set(
-              modelData.map((m: string) => (m.includes('/') ? m.substring(m.lastIndexOf('/') + 1) : m)),
+              modelData
+                .filter((m: string) => !isNonChatDevPassModel(m))
+                .map((m: string) => (m.includes('/') ? m.substring(m.lastIndexOf('/') + 1) : m))
+                .filter((m: string) => !isNonChatDevPassModel(m)),
             ),
           ).filter(Boolean);
           modelsConfig[name] = !stripped.length ? defaults : stripped;
