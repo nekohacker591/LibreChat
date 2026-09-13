@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain, shell, dialog, nativeImage, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, shell, dialog, nativeImage, clipboard, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -411,6 +411,27 @@ ipcMain.handle('test-connection', async (event, testUrl) => {
   return await testServerConnection(formattedUrl);
 });
 
+function setupNetworkInterception() {
+  const filter = {
+    urls: [
+      '*://*.llmgateway.io/*',
+      '*://llmgateway.io/*'
+    ]
+  };
+
+  try {
+    session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+      const requestHeaders = { ...details.requestHeaders };
+      requestHeaders['x-source'] = 'devpass-code';
+      requestHeaders['User-Agent'] = 'devpass-code/1.18.11';
+      callback({ requestHeaders });
+    });
+    console.log('[Desktop] LLM Gateway network interceptor registered with x-source and devpass-code spoofing.');
+  } catch (err) {
+    console.warn('[Desktop] Failed to register webRequest interceptor:', err);
+  }
+}
+
 // App Lifecycle
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -424,7 +445,10 @@ if (!gotSingleInstanceLock) {
     }
   });
 
-  app.whenReady().then(createMainWindow);
+  app.whenReady().then(() => {
+    setupNetworkInterception();
+    createMainWindow();
+  });
 
   app.on('before-quit', () => {
     stopBackend();

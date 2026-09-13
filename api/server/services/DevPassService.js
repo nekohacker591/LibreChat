@@ -86,6 +86,7 @@ function getDevPassHeaders(existingHeaders = {}) {
   return {
     ...existingHeaders,
     'x-source': DEVPASS_HEADER_VALUE,
+    'User-Agent': 'devpass-code/1.18.11',
   };
 }
 
