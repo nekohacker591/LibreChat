@@ -298,7 +298,16 @@ export function createLoadConfigModels(deps: LoadConfigModelsDeps) {
         const defaults = (endpoint.models?.default ?? []).map((m) =>
           typeof m === 'string' ? m : m.name,
         );
-        modelsConfig[name] = !modelData?.length ? defaults : modelData;
+        if (name.toLowerCase().includes('devpass')) {
+          const stripped = Array.from(
+            new Set(
+              modelData.map((m: string) => (m.includes('/') ? m.substring(m.lastIndexOf('/') + 1) : m)),
+            ),
+          ).filter(Boolean);
+          modelsConfig[name] = !stripped.length ? defaults : stripped;
+        } else {
+          modelsConfig[name] = !modelData?.length ? defaults : modelData;
+        }
       }
 
       /** A shared fetch caches token config under one endpoint's tokenKey;

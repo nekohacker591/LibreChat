@@ -15,13 +15,14 @@ endpoints:
       models:
         fetch: true
         default:
-          - "gpt-4o"
-          - "gpt-4o-mini"
-          - "claude-sonnet-4-5"
-          - "o1"
-          - "o3-mini"
+          - "openai/gpt-4o"
+          - "openai/gpt-4o-mini"
+          - "azure/gpt-4o"
+          - "anthropic/claude-sonnet-4-5"
+          - "openai/o1"
+          - "openai/o3-mini"
       titleConvo: true
-      titleModel: "gpt-4o-mini"
+      titleModel: "openai/gpt-4o-mini"
       modelDisplayLabel: "LLM Gateway"
 
     - name: "DevPass"

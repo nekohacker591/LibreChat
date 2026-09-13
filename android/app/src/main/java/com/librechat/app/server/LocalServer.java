@@ -35,17 +35,34 @@ public class LocalServer extends NanoHTTPD {
     private final Context context;
     private final LocalDatabaseHelper dbHelper;
     private final OkHttpClient httpClient;
-    private volatile JSONArray cachedModels = getDefaultModels();
+    private final Object modelsLock = new Object();
+    private volatile JSONArray cachedLlmGatewayModels = getDefaultLlmGatewayModels();
+    private volatile JSONArray cachedDevPassModels = getDefaultDevPassModels();
     private volatile boolean isFetchingModels = false;
+    private volatile boolean modelsLoaded = false;
     private long lastModelsFetchTime = 0;
 
-    private static JSONArray getDefaultModels() {
+    private static JSONArray getDefaultLlmGatewayModels() {
+        JSONArray arr = new JSONArray();
+        arr.put("openai/gpt-4o");
+        arr.put("openai/gpt-4o-mini");
+        arr.put("azure/gpt-4o");
+        arr.put("azure/gpt-4o-mini");
+        arr.put("anthropic/claude-3-5-sonnet-20241022");
+        arr.put("anthropic/claude-3-5-haiku-20241022");
+        arr.put("google/gemini-2.0-flash");
+        arr.put("deepseek/deepseek-chat");
+        arr.put("meta/llama-3.3-70b-instruct");
+        return arr;
+    }
+
+    private static JSONArray getDefaultDevPassModels() {
         JSONArray arr = new JSONArray();
         arr.put("gpt-4o");
         arr.put("gpt-4o-mini");
         arr.put("claude-3-5-sonnet-20241022");
         arr.put("claude-3-5-haiku-20241022");
-        arr.put("gemini-2.0-flash-exp");
+        arr.put("gemini-2.0-flash");
         arr.put("gemini-1.5-flash");
         arr.put("llama-3.3-70b-instruct");
         arr.put("deepseek-chat");
@@ -94,6 +111,8 @@ public class LocalServer extends NanoHTTPD {
                 .readTimeout(60, TimeUnit.SECONDS)
                 .writeTimeout(60, TimeUnit.SECONDS)
                 .build();
+        // Eagerly index models from gateway on server startup
+        new Thread(this::fetchModelsFromGateway).start();
     }
 
     public LocalDatabaseHelper getDbHelper() {
@@ -253,10 +272,20 @@ public class LocalServer extends NanoHTTPD {
 
         // 5. Models
         if (uri.equals("/api/models")) {
-            JSONArray modelsList = fetchModelsFromGateway();
+            long now = System.currentTimeMillis();
+            if ((now - lastModelsFetchTime) > 300000 && !isFetchingModels) {
+                new Thread(this::fetchModelsFromGateway).start();
+            }
+            if (!modelsLoaded && isFetchingModels) {
+                synchronized (modelsLock) {
+                    try {
+                        modelsLock.wait(2500);
+                    } catch (InterruptedException ignored) {}
+                }
+            }
             JSONObject modelsObj = new JSONObject();
-            modelsObj.put("LLM Gateway", modelsList);
-            modelsObj.put("DevPass", modelsList);
+            modelsObj.put("LLM Gateway", cachedLlmGatewayModels);
+            modelsObj.put("DevPass", cachedDevPassModels);
             return newFixedLengthResponse(Response.Status.OK, "application/json", modelsObj.toString());
         }
 
@@ -690,7 +719,13 @@ public class LocalServer extends NanoHTTPD {
 
                     // 3. Build outbound OpenAI request
                     JSONObject outboundPayload = new JSONObject();
-                    outboundPayload.put("model", gen.model);
+                    String targetModel = gen.model;
+                    if ("DevPass".equalsIgnoreCase(gen.endpoint)) {
+                        if (targetModel != null && targetModel.contains("/")) {
+                            targetModel = targetModel.substring(targetModel.lastIndexOf('/') + 1);
+                        }
+                    }
+                    outboundPayload.put("model", targetModel);
                     outboundPayload.put("stream", true);
 
                     JSONArray messages = new JSONArray();
@@ -918,7 +953,13 @@ public class LocalServer extends NanoHTTPD {
 
             // Prepare outbound OpenAI-compatible Chat Completion Payload
             JSONObject outboundPayload = new JSONObject();
-            outboundPayload.put("model", model);
+            String outboundModel = model;
+            if ("DevPass".equalsIgnoreCase(endpoint)) {
+                if (outboundModel != null && outboundModel.contains("/")) {
+                    outboundModel = outboundModel.substring(outboundModel.lastIndexOf('/') + 1);
+                }
+            }
+            outboundPayload.put("model", outboundModel);
             outboundPayload.put("stream", true);
 
             JSONArray messages = new JSONArray();
@@ -1048,48 +1089,74 @@ public class LocalServer extends NanoHTTPD {
         }
     }
 
-    private JSONArray fetchModelsFromGateway() {
-        long now = System.currentTimeMillis();
-        if ((now - lastModelsFetchTime) > 300000 && !isFetchingModels) {
+    private void fetchModelsFromGateway() {
+        synchronized (modelsLock) {
+            if (isFetchingModels) {
+                return;
+            }
             isFetchingModels = true;
-            new Thread(() -> {
-                try {
-                    Request req = new Request.Builder()
-                            .url("https://api.llmgateway.io/v1/models")
-                            .addHeader("x-source", "devpass-code")
-                            .get()
-                            .build();
-
-                    try (okhttp3.Response resp = httpClient.newCall(req).execute()) {
-                        if (resp.isSuccessful() && resp.body() != null) {
-                            String bodyStr = resp.body().string();
-                            JSONObject json = new JSONObject(bodyStr);
-                            JSONArray data = json.optJSONArray("data");
-                            if (data != null && data.length() > 0) {
-                                JSONArray result = new JSONArray();
-                                for (int i = 0; i < data.length(); i++) {
-                                    JSONObject m = data.getJSONObject(i);
-                                    String id = m.optString("id");
-                                    if (!id.isEmpty()) {
-                                        result.put(id);
-                                    }
-                                }
-                                if (result.length() > 0) {
-                                    cachedModels = result;
-                                    lastModelsFetchTime = System.currentTimeMillis();
-                                }
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "Failed to background fetch models from gateway", e);
-                } finally {
-                    isFetchingModels = false;
-                }
-            }).start();
         }
 
-        return cachedModels;
+        try {
+            Request req = new Request.Builder()
+                    .url("https://api.llmgateway.io/v1/models?mapped=true")
+                    .addHeader("x-source", "devpass-code")
+                    .get()
+                    .build();
+
+            try (okhttp3.Response resp = httpClient.newCall(req).execute()) {
+                if (resp.isSuccessful() && resp.body() != null) {
+                    String bodyStr = resp.body().string();
+                    JSONObject json = new JSONObject(bodyStr);
+                    JSONArray data = json.optJSONArray("data");
+                    if (data != null && data.length() > 0) {
+                        JSONArray gatewayList = new JSONArray();
+                        java.util.LinkedHashSet<String> devPassSet = new java.util.LinkedHashSet<>();
+
+                        for (int i = 0; i < data.length(); i++) {
+                            JSONObject m = data.getJSONObject(i);
+                            String id = m.optString("id", "").trim();
+                            if (id.isEmpty() || id.equalsIgnoreCase("custom") || id.equalsIgnoreCase("llmgateway/custom")) {
+                                continue;
+                            }
+
+                            // LLM Gateway (Pay as you go): includes the provider name (e.g. openai/gpt-4o)
+                            gatewayList.put(id);
+
+                            // DevPass: remove the provider name (e.g. openai/gpt-4o -> gpt-4o)
+                            String stripped = id;
+                            if (stripped.contains("/")) {
+                                stripped = stripped.substring(stripped.lastIndexOf('/') + 1);
+                            }
+                            if (!stripped.isEmpty() && !stripped.equalsIgnoreCase("custom")) {
+                                devPassSet.add(stripped);
+                            }
+                        }
+
+                        if (gatewayList.length() > 0) {
+                            cachedLlmGatewayModels = gatewayList;
+                        }
+                        if (!devPassSet.isEmpty()) {
+                            JSONArray devList = new JSONArray();
+                            for (String modelName : devPassSet) {
+                                devList.put(modelName);
+                            }
+                            cachedDevPassModels = devList;
+                        }
+                        lastModelsFetchTime = System.currentTimeMillis();
+                        modelsLoaded = true;
+                        Log.i(TAG, "Indexed models: " + gatewayList.length() + " LLM Gateway models, " + devPassSet.size() + " DevPass models");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to background fetch models from gateway", e);
+        } finally {
+            synchronized (modelsLock) {
+                isFetchingModels = false;
+                modelsLock.notifyAll();
+            }
+        }
     }
 
     private Response serveStatic(String uri) {

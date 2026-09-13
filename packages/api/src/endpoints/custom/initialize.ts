@@ -327,6 +327,13 @@ export async function initializeCustom(
   };
 
   const modelOptions = { ...(model_parameters ?? {}), user: userId };
+  if (
+    endpoint.toLowerCase().includes('devpass') &&
+    typeof modelOptions.model === 'string' &&
+    modelOptions.model.includes('/')
+  ) {
+    modelOptions.model = modelOptions.model.substring(modelOptions.model.lastIndexOf('/') + 1);
+  }
 
   let options: InitializeResultBase;
   if (endpointConfig.provider === EModelEndpoint.anthropic) {

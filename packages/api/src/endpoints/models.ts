@@ -287,6 +287,12 @@ export async function fetchModels({
     if (user && userIdQuery) {
       url.searchParams.append('user', user);
     }
+    const isLLMGateway =
+      typeof baseURL === 'string' &&
+      (baseURL.includes('llmgateway.io') || headers?.['x-source'] === 'devpass-code');
+    if (isLLMGateway && !url.searchParams.has('mapped')) {
+      url.searchParams.set('mapped', 'true');
+    }
     applyAxiosProxyConfig(options, url);
     applyUserProvidedBaseURLProtection(options, ssrfAgents);
     const res = await axios.get(url.toString(), options);
