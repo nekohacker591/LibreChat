@@ -176,7 +176,10 @@ export async function fetchModels({
 
   const isPublicCatalog =
     typeof baseURL === 'string' &&
-    (baseURL.includes('llmgateway.io') || headers?.['x-source'] === 'devpass-code');
+    (baseURL.includes('llmgateway.io') ||
+      baseURL.includes('opencode.ai') ||
+      headers?.['x-source'] === 'opencode' ||
+      headers?.['x-source'] === 'devpass-code');
 
   if (!apiKey && !isPublicCatalog) {
     return models;
@@ -290,18 +293,22 @@ export async function fetchModels({
     const isLLMGateway =
       typeof baseURL === 'string' &&
       (baseURL.includes('llmgateway.io') ||
+        baseURL.includes('opencode.ai') ||
+        headers?.['x-source'] === 'opencode' ||
+        headers?.['X-Source'] === 'opencode' ||
         headers?.['x-source'] === 'devpass-code' ||
         headers?.['X-Source'] === 'devpass-code' ||
         name.toLowerCase().includes('llm gateway') ||
-        name.toLowerCase().includes('devpass'));
+        name.toLowerCase().includes('devpass') ||
+        name.toLowerCase().includes('opencode'));
     if (isLLMGateway) {
       if (!options.headers['x-source'] && !options.headers['X-Source']) {
-        options.headers['x-source'] = 'devpass-code';
+        options.headers['x-source'] = 'opencode';
       }
       if (!options.headers['User-Agent'] && !options.headers['user-agent']) {
-        options.headers['User-Agent'] = 'devpass-code/1.18.11';
+        options.headers['User-Agent'] = 'opencode/1.18.30';
       }
-      if (!url.searchParams.has('mapped')) {
+      if (baseURL.includes('llmgateway.io') && !url.searchParams.has('mapped')) {
         url.searchParams.set('mapped', 'true');
       }
     }

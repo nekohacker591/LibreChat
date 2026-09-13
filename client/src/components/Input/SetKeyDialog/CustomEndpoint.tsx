@@ -15,6 +15,7 @@ const CustomEndpoint = ({
     endpointStr.includes('llm gateway') ||
     endpointStr.includes('llmgateway') ||
     endpointStr.includes('devpass');
+  const isOpenCode = endpointStr.includes('opencode');
 
   return (
     <form className="flex-wrap">
@@ -26,7 +27,13 @@ const CustomEndpoint = ({
             id="apiKey"
             {...field}
             label={isLLMGateway ? `${endpoint} API Token` : `${endpoint} API Key`}
-            placeholder={isLLMGateway ? 'llmgtwy_... or DevPass token' : undefined}
+            placeholder={
+              isLLMGateway
+                ? 'llmgtwy_... or DevPass token'
+                : isOpenCode
+                  ? `${endpoint} API Key`
+                  : undefined
+            }
             labelClassName="mb-1"
             inputClassName="mb-2"
             secret

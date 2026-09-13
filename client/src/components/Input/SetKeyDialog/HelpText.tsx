@@ -71,6 +71,40 @@ function HelpText({ endpoint }: { endpoint: string }) {
     );
   }
 
+  if (endpointStr.includes('opencode go')) {
+    return (
+      <small className="mt-4 block break-words text-text-secondary">
+        Enter your OpenCode Go API key. See{' '}
+        <a
+          target="_blank"
+          href="https://opencode.ai/docs/go/"
+          rel="noreferrer"
+          className="text-link underline"
+        >
+          OpenCode Go Docs
+        </a>{' '}
+        for details on subscription and available models.
+      </small>
+    );
+  }
+
+  if (endpointStr.includes('opencode zen') || endpointStr === 'opencode') {
+    return (
+      <small className="mt-4 block break-words text-text-secondary">
+        Enter your OpenCode Zen API key. See{' '}
+        <a
+          target="_blank"
+          href="https://opencode.ai/docs/zen/"
+          rel="noreferrer"
+          className="text-link underline"
+        >
+          OpenCode Zen Docs
+        </a>{' '}
+        for details on API access and models.
+      </small>
+    );
+  }
+
   return textMap[endpoint] || null;
 }
 

@@ -4,16 +4,16 @@ cache: true
 endpoints:
   all:
     headers:
-      x-source: "devpass-code"
-      User-Agent: "devpass-code/1.18.11"
+      x-source: "opencode"
+      User-Agent: "opencode/1.18.30"
 
   custom:
     - name: "LLM Gateway"
       apiKey: "${LLM_GATEWAY_API_KEY:-user_provided}"
       baseURL: "${LLM_GATEWAY_BASE_URL:-https://api.llmgateway.io/v1}"
       headers:
-        x-source: "devpass-code"
-        User-Agent: "devpass-code/1.18.11"
+        x-source: "opencode"
+        User-Agent: "opencode/1.18.30"
       models:
         fetch: true
         default:
@@ -31,8 +31,8 @@ endpoints:
       apiKey: "${DEVPASS_API_TOKEN:-${DEVPASS_API_KEY:-user_provided}}"
       baseURL: "${DEVPASS_BASE_URL:-https://api.llmgateway.io/v1}"
       headers:
-        x-source: "devpass-code"
-        User-Agent: "devpass-code/1.18.11"
+        x-source: "opencode"
+        User-Agent: "opencode/1.18.30"
       models:
         fetch: true
         default:
@@ -44,3 +44,41 @@ endpoints:
       titleConvo: true
       titleModel: "gpt-4o-mini"
       modelDisplayLabel: "DevPass"
+
+    - name: "OpenCode Go"
+      apiKey: "${OPENCODE_GO_API_KEY:-user_provided}"
+      baseURL: "${OPENCODE_GO_BASE_URL:-https://opencode.ai/zen/go/v1}"
+      headers:
+        x-source: "opencode"
+        User-Agent: "opencode/1.18.30"
+      models:
+        fetch: true
+        default:
+          - "minimax-m3"
+          - "kimi-k3"
+          - "glm-5.3"
+          - "deepseek-v4-flash"
+          - "qwen3.8-max"
+          - "gpt-5.6-luna"
+          - "grok-4.6"
+      titleConvo: true
+      titleModel: "deepseek-v4-flash"
+      modelDisplayLabel: "OpenCode Go"
+
+    - name: "OpenCode Zen"
+      apiKey: "${OPENCODE_ZEN_API_KEY:-user_provided}"
+      baseURL: "${OPENCODE_ZEN_BASE_URL:-https://opencode.ai/zen/v1}"
+      headers:
+        x-source: "opencode"
+        User-Agent: "opencode/1.18.30"
+      models:
+        fetch: true
+        default:
+          - "claude-sonnet-4-5"
+          - "gpt-5.4"
+          - "gemini-3-flash"
+          - "deepseek-v4-flash"
+          - "grok-4.6"
+      titleConvo: true
+      titleModel: "gemini-3-flash"
+      modelDisplayLabel: "OpenCode Zen"

@@ -294,7 +294,10 @@ export function createLoadConfigModels(deps: LoadConfigModelsDeps) {
         (apiKeyIsUserProvided || baseURLIsUserProvided) &&
         !baseURLIsUserProvided &&
         BASE_URL &&
-        (BASE_URL.includes('llmgateway.io') || endpointHeaders?.['x-source'] === 'devpass-code')
+        (BASE_URL.includes('llmgateway.io') ||
+          BASE_URL.includes('opencode.ai') ||
+          endpointHeaders?.['x-source'] === 'opencode' ||
+          endpointHeaders?.['x-source'] === 'devpass-code')
       ) {
         const publicFetchKey = `public:${BASE_URL}__${headersFingerprint(endpointHeaders)}`;
         if (!fetchPromisesMap[publicFetchKey]) {

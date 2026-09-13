@@ -8,6 +8,7 @@ const DEVPASS_API_TOKEN =
   process.env.DEVPASS_CODE ||
   '';
 
+const OPENCODE_HEADER_VALUE = 'opencode';
 const DEVPASS_HEADER_VALUE = 'devpass-code';
 
 /**
@@ -31,15 +32,15 @@ function extractTokenFromRequest(req) {
 }
 
 /**
- * Checks if request contains the x-source: devpass-code header
+ * Checks if request contains the x-source header (opencode, open-code, or devpass-code)
  */
 function isDevPassRequest(req) {
-  const sourceHeader = req.headers['x-source'];
-  return Boolean(
-    sourceHeader &&
-      (sourceHeader === DEVPASS_HEADER_VALUE ||
-        sourceHeader.toLowerCase() === DEVPASS_HEADER_VALUE.toLowerCase())
-  );
+  const sourceHeader = req.headers['x-source'] || req.headers['X-Source'];
+  if (!sourceHeader) {
+    return false;
+  }
+  const val = String(sourceHeader).trim().toLowerCase();
+  return val === 'opencode' || val === 'open-code' || val === 'devpass-code';
 }
 
 /**
@@ -85,13 +86,14 @@ function getDevPassPrincipal(token) {
 function getDevPassHeaders(existingHeaders = {}) {
   return {
     ...existingHeaders,
-    'x-source': DEVPASS_HEADER_VALUE,
-    'User-Agent': 'devpass-code/1.18.11',
+    'x-source': OPENCODE_HEADER_VALUE,
+    'User-Agent': 'opencode/1.18.30',
   };
 }
 
 module.exports = {
   DEVPASS_API_TOKEN,
+  OPENCODE_HEADER_VALUE,
   DEVPASS_HEADER_VALUE,
   isDevPassRequest,
   validateDevPassToken,

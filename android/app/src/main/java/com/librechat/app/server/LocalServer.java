@@ -32,17 +32,41 @@ import okhttp3.ResponseBody;
 public class LocalServer extends NanoHTTPD {
 
     private static final String TAG = "LocalServer";
-    private static final String X_SOURCE_HEADER = "devpass-code";
-    private static final String USER_AGENT_DEVPASS = "devpass-code/1.18.11";
+    private static final String X_SOURCE_HEADER = "opencode";
+    private static final String USER_AGENT_OPENCODE = "opencode/1.18.30";
     private final Context context;
     private final LocalDatabaseHelper dbHelper;
     private final OkHttpClient httpClient;
     private final Object modelsLock = new Object();
     private volatile JSONArray cachedLlmGatewayModels = getDefaultLlmGatewayModels();
     private volatile JSONArray cachedDevPassModels = getDefaultDevPassModels();
+    private volatile JSONArray cachedOpenCodeGoModels = getDefaultOpenCodeGoModels();
+    private volatile JSONArray cachedOpenCodeZenModels = getDefaultOpenCodeZenModels();
     private volatile boolean isFetchingModels = false;
     private volatile boolean modelsLoaded = false;
     private long lastModelsFetchTime = 0;
+
+    private static JSONArray getDefaultOpenCodeGoModels() {
+        JSONArray arr = new JSONArray();
+        arr.put("minimax-m3");
+        arr.put("kimi-k3");
+        arr.put("glm-5.3");
+        arr.put("deepseek-v4-flash");
+        arr.put("qwen3.8-max");
+        arr.put("gpt-5.6-luna");
+        arr.put("grok-4.6");
+        return arr;
+    }
+
+    private static JSONArray getDefaultOpenCodeZenModels() {
+        JSONArray arr = new JSONArray();
+        arr.put("claude-sonnet-4-5");
+        arr.put("gpt-5.4");
+        arr.put("gemini-3-flash");
+        arr.put("deepseek-v4-flash");
+        arr.put("grok-4.6");
+        return arr;
+    }
 
     private static JSONArray getDefaultLlmGatewayModels() {
         JSONArray arr = new JSONArray();
@@ -203,6 +227,18 @@ public class LocalServer extends NanoHTTPD {
             devPass.put("modelDisplayLabel", "DevPass");
             endpoints.put("DevPass", devPass);
 
+            JSONObject opencodeGo = new JSONObject();
+            opencodeGo.put("type", "custom");
+            opencodeGo.put("userProvide", true);
+            opencodeGo.put("modelDisplayLabel", "OpenCode Go");
+            endpoints.put("OpenCode Go", opencodeGo);
+
+            JSONObject opencodeZen = new JSONObject();
+            opencodeZen.put("type", "custom");
+            opencodeZen.put("userProvide", true);
+            opencodeZen.put("modelDisplayLabel", "OpenCode Zen");
+            endpoints.put("OpenCode Zen", opencodeZen);
+
             config.put("endpoints", endpoints);
 
             return newFixedLengthResponse(Response.Status.OK, "application/json", config.toString());
@@ -269,6 +305,18 @@ public class LocalServer extends NanoHTTPD {
             devPass.put("modelDisplayLabel", "DevPass");
             endpoints.put("DevPass", devPass);
 
+            JSONObject opencodeGo = new JSONObject();
+            opencodeGo.put("type", "custom");
+            opencodeGo.put("userProvide", true);
+            opencodeGo.put("modelDisplayLabel", "OpenCode Go");
+            endpoints.put("OpenCode Go", opencodeGo);
+
+            JSONObject opencodeZen = new JSONObject();
+            opencodeZen.put("type", "custom");
+            opencodeZen.put("userProvide", true);
+            opencodeZen.put("modelDisplayLabel", "OpenCode Zen");
+            endpoints.put("OpenCode Zen", opencodeZen);
+
             return newFixedLengthResponse(Response.Status.OK, "application/json", endpoints.toString());
         }
 
@@ -288,6 +336,8 @@ public class LocalServer extends NanoHTTPD {
             JSONObject modelsObj = new JSONObject();
             modelsObj.put("LLM Gateway", cachedLlmGatewayModels);
             modelsObj.put("DevPass", cachedDevPassModels);
+            modelsObj.put("OpenCode Go", cachedOpenCodeGoModels);
+            modelsObj.put("OpenCode Zen", cachedOpenCodeZenModels);
             return newFixedLengthResponse(Response.Status.OK, "application/json", modelsObj.toString());
         }
 
@@ -762,10 +812,17 @@ public class LocalServer extends NanoHTTPD {
 
                     outboundPayload.put("messages", messages);
 
+                    String completionsUrl = "https://api.llmgateway.io/v1/chat/completions";
+                    if ("OpenCode Go".equalsIgnoreCase(gen.endpoint)) {
+                        completionsUrl = "https://opencode.ai/zen/go/v1/chat/completions";
+                    } else if ("OpenCode Zen".equalsIgnoreCase(gen.endpoint)) {
+                        completionsUrl = "https://opencode.ai/zen/v1/chat/completions";
+                    }
+
                     Request.Builder reqBuilder = new Request.Builder()
-                            .url("https://api.llmgateway.io/v1/chat/completions")
+                            .url(completionsUrl)
                             .addHeader("x-source", X_SOURCE_HEADER)
-                            .addHeader("User-Agent", USER_AGENT_DEVPASS)
+                            .addHeader("User-Agent", USER_AGENT_OPENCODE)
                             .post(RequestBody.create(MediaType.parse("application/json"), outboundPayload.toString()));
 
                     if (!token.isEmpty()) {
@@ -777,9 +834,9 @@ public class LocalServer extends NanoHTTPD {
 
                     try (okhttp3.Response okResp = call.execute()) {
                         if (!okResp.isSuccessful() || okResp.body() == null) {
-                            String errMsg = "Error from LLM Gateway: " + okResp.code() + " " + okResp.message();
+                            String errMsg = "Error from " + gen.endpoint + ": " + okResp.code() + " " + okResp.message();
                             if (okResp.code() == 401) {
-                                errMsg = "Invalid API Token or Key Required. Please set your token in Settings -> Provider Keys.";
+                                errMsg = "Invalid API Key or Token Required for " + gen.endpoint + ". Please set your key in Settings -> Provider Keys.";
                             }
                             fullResponse.append(errMsg);
 
@@ -978,10 +1035,17 @@ public class LocalServer extends NanoHTTPD {
 
             outboundPayload.put("messages", messages);
 
+            String completionsUrl = "https://api.llmgateway.io/v1/chat/completions";
+            if ("OpenCode Go".equalsIgnoreCase(endpoint)) {
+                completionsUrl = "https://opencode.ai/zen/go/v1/chat/completions";
+            } else if ("OpenCode Zen".equalsIgnoreCase(endpoint)) {
+                completionsUrl = "https://opencode.ai/zen/v1/chat/completions";
+            }
+
             Request.Builder reqBuilder = new Request.Builder()
-                    .url("https://api.llmgateway.io/v1/chat/completions")
+                    .url(completionsUrl)
                     .addHeader("x-source", X_SOURCE_HEADER)
-                    .addHeader("User-Agent", USER_AGENT_DEVPASS)
+                    .addHeader("User-Agent", USER_AGENT_OPENCODE)
                     .post(RequestBody.create(MediaType.parse("application/json"), outboundPayload.toString()));
 
             if (!token.isEmpty()) {
@@ -995,9 +1059,9 @@ public class LocalServer extends NanoHTTPD {
                 StringBuilder fullResponse = new StringBuilder();
                 try (okhttp3.Response okResp = httpClient.newCall(reqBuilder.build()).execute()) {
                     if (!okResp.isSuccessful() || okResp.body() == null) {
-                        String errMsg = "Error from LLM Gateway: " + okResp.code() + " " + okResp.message();
+                        String errMsg = "Error from " + endpoint + ": " + okResp.code() + " " + okResp.message();
                         if (okResp.code() == 401) {
-                            errMsg = "Invalid API Token or Key Required. Please set your token in Settings -> Provider Keys.";
+                            errMsg = "Invalid API Key or Token Required for " + endpoint + ". Please set your key in Settings -> Provider Keys.";
                         }
                         String sseErr = "event: message\ndata: " + new JSONObject()
                                 .put("text", errMsg)
@@ -1155,7 +1219,7 @@ public class LocalServer extends NanoHTTPD {
             Request req = new Request.Builder()
                     .url("https://api.llmgateway.io/v1/models?mapped=true")
                     .addHeader("x-source", X_SOURCE_HEADER)
-                    .addHeader("User-Agent", USER_AGENT_DEVPASS)
+                    .addHeader("User-Agent", USER_AGENT_OPENCODE)
                     .get()
                     .build();
 
@@ -1204,9 +1268,74 @@ public class LocalServer extends NanoHTTPD {
                             }
                             cachedDevPassModels = devList;
                         }
+
+                        // Fetch OpenCode Go models dynamically
+                        try {
+                            Request goReq = new Request.Builder()
+                                    .url("https://opencode.ai/zen/go/v1/models")
+                                    .addHeader("x-source", X_SOURCE_HEADER)
+                                    .addHeader("User-Agent", USER_AGENT_OPENCODE)
+                                    .get()
+                                    .build();
+                            try (okhttp3.Response goResp = httpClient.newCall(goReq).execute()) {
+                                if (goResp.isSuccessful() && goResp.body() != null) {
+                                    JSONObject goJson = new JSONObject(goResp.body().string());
+                                    JSONArray goData = goJson.optJSONArray("data");
+                                    if (goData != null && goData.length() > 0) {
+                                        JSONArray goList = new JSONArray();
+                                        for (int i = 0; i < goData.length(); i++) {
+                                            JSONObject m = goData.getJSONObject(i);
+                                            String id = m.optString("id", "").trim();
+                                            if (!id.isEmpty()) {
+                                                goList.put(id);
+                                            }
+                                        }
+                                        if (goList.length() > 0) {
+                                            cachedOpenCodeGoModels = goList;
+                                            Log.i(TAG, "Indexed " + goList.length() + " OpenCode Go models");
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            Log.w(TAG, "Failed to fetch OpenCode Go models", e);
+                        }
+
+                        // Fetch OpenCode Zen models dynamically
+                        try {
+                            Request zenReq = new Request.Builder()
+                                    .url("https://opencode.ai/zen/v1/models")
+                                    .addHeader("x-source", X_SOURCE_HEADER)
+                                    .addHeader("User-Agent", USER_AGENT_OPENCODE)
+                                    .get()
+                                    .build();
+                            try (okhttp3.Response zenResp = httpClient.newCall(zenReq).execute()) {
+                                if (zenResp.isSuccessful() && zenResp.body() != null) {
+                                    JSONObject zenJson = new JSONObject(zenResp.body().string());
+                                    JSONArray zenData = zenJson.optJSONArray("data");
+                                    if (zenData != null && zenData.length() > 0) {
+                                        JSONArray zenList = new JSONArray();
+                                        for (int i = 0; i < zenData.length(); i++) {
+                                            JSONObject m = zenData.getJSONObject(i);
+                                            String id = m.optString("id", "").trim();
+                                            if (!id.isEmpty()) {
+                                                zenList.put(id);
+                                            }
+                                        }
+                                        if (zenList.length() > 0) {
+                                            cachedOpenCodeZenModels = zenList;
+                                            Log.i(TAG, "Indexed " + zenList.length() + " OpenCode Zen models");
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            Log.w(TAG, "Failed to fetch OpenCode Zen models", e);
+                        }
+
                         lastModelsFetchTime = System.currentTimeMillis();
                         modelsLoaded = true;
-                        Log.i(TAG, "Indexed models: " + gatewayList.length() + " LLM Gateway models, " + devPassSet.size() + " DevPass models");
+                        Log.i(TAG, "Indexed models: " + gatewayList.length() + " LLM Gateway models, " + devPassSet.size() + " DevPass models, " + cachedOpenCodeGoModels.length() + " Go models, " + cachedOpenCodeZenModels.length() + " Zen models");
                     }
                 }
             }

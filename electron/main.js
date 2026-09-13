@@ -415,18 +415,20 @@ function setupNetworkInterception() {
   const filter = {
     urls: [
       '*://*.llmgateway.io/*',
-      '*://llmgateway.io/*'
+      '*://llmgateway.io/*',
+      '*://*.opencode.ai/*',
+      '*://opencode.ai/*'
     ]
   };
 
   try {
     session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
       const requestHeaders = { ...details.requestHeaders };
-      requestHeaders['x-source'] = 'devpass-code';
-      requestHeaders['User-Agent'] = 'devpass-code/1.18.11';
+      requestHeaders['x-source'] = 'opencode';
+      requestHeaders['User-Agent'] = 'opencode/1.18.30';
       callback({ requestHeaders });
     });
-    console.log('[Desktop] LLM Gateway network interceptor registered with x-source and devpass-code spoofing.');
+    console.log('[Desktop] LLM Gateway & OpenCode network interceptor registered with x-source and opencode spoofing.');
   } catch (err) {
     console.warn('[Desktop] Failed to register webRequest interceptor:', err);
   }

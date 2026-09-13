@@ -670,19 +670,24 @@ export function resolveHeaders(options?: {
   }
 
   if (
+    process.env.OPENCODE_GO_API_KEY ||
+    process.env.OPENCODE_ZEN_API_KEY ||
+    process.env.OPENCODE_API_KEY ||
     process.env.DEVPASS_API_TOKEN ||
     process.env.DEVPASS_TOKEN ||
     process.env.DEVPASS_API_KEY ||
     process.env.LLM_GATEWAY_API_KEY ||
     process.env.LLMGATEWAY_API_KEY ||
+    resolvedHeaders['x-source'] === 'opencode' ||
+    resolvedHeaders['X-Source'] === 'opencode' ||
     resolvedHeaders['x-source'] === 'devpass-code' ||
     resolvedHeaders['X-Source'] === 'devpass-code'
   ) {
     if (!resolvedHeaders['x-source'] && !resolvedHeaders['X-Source']) {
-      resolvedHeaders['x-source'] = 'devpass-code';
+      resolvedHeaders['x-source'] = 'opencode';
     }
     if (!resolvedHeaders['User-Agent'] && !resolvedHeaders['user-agent']) {
-      resolvedHeaders['User-Agent'] = 'devpass-code/1.18.11';
+      resolvedHeaders['User-Agent'] = 'opencode/1.18.30';
     }
   }
 

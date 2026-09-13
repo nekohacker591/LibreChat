@@ -88,7 +88,7 @@ const requireJwtAuth = async (req, res, next) => {
       if (token && validateDevPassToken(req)) {
         req.user = getDevPassPrincipal(token);
         req.authStrategy = 'devpass-api-token';
-        res.setHeader('x-source', 'devpass-code');
+        res.setHeader('x-source', 'opencode');
         return tenantContextMiddleware(req, res, (tenantErr) => {
           if (tenantErr) {
             return next(tenantErr);

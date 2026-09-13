@@ -330,14 +330,15 @@ export async function initializeCustom(
     endpoint.toLowerCase().includes('llm gateway') ||
     endpoint.toLowerCase().includes('llmgateway') ||
     endpoint.toLowerCase().includes('devpass') ||
-    (typeof baseURL === 'string' && baseURL.includes('llmgateway.io'));
+    endpoint.toLowerCase().includes('opencode') ||
+    (typeof baseURL === 'string' && (baseURL.includes('llmgateway.io') || baseURL.includes('opencode.ai')));
   if (isLLMGatewayOrDevPass) {
     const headers = { ...((clientOptions.headers as Record<string, string>) || {}) };
     if (!headers['x-source'] && !headers['X-Source']) {
-      headers['x-source'] = 'devpass-code';
+      headers['x-source'] = 'opencode';
     }
     if (!headers['User-Agent'] && !headers['user-agent']) {
-      headers['User-Agent'] = 'devpass-code/1.18.11';
+      headers['User-Agent'] = 'opencode/1.18.30';
     }
     clientOptions.headers = headers;
   }
