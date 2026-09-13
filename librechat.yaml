@@ -80,5 +80,5 @@ endpoints:
           - "deepseek-v4-flash"
           - "grok-4.6"
       titleConvo: true
-      titleModel: "gemini-3-flash"
+      titleModel: "deepseek-v4-flash"
       modelDisplayLabel: "OpenCode Zen"

@@ -55,9 +55,13 @@ function ensureEnv() {
 
   let modified = false;
   for (const [key, val] of Object.entries(defaults)) {
-    const regex = new RegExp(`^${key}=.*$`, 'm');
-    if (!regex.test(content)) {
+    const lineRegex = new RegExp(`^${key}=(.*)$`, 'm');
+    const match = content.match(lineRegex);
+    if (!match) {
       content += `\n${key}=${val}`;
+      modified = true;
+    } else if (!match[1].trim()) {
+      content = content.replace(lineRegex, `${key}=${val}`);
       modified = true;
     }
   }

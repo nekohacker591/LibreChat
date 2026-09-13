@@ -812,20 +812,64 @@ public class LocalServer extends NanoHTTPD {
 
                     outboundPayload.put("messages", messages);
 
+                    String modelLower = gen.model != null ? gen.model.toLowerCase() : "";
+                    boolean isOpenCode = "OpenCode Go".equalsIgnoreCase(gen.endpoint) || "OpenCode Zen".equalsIgnoreCase(gen.endpoint);
+                    boolean isGo = "OpenCode Go".equalsIgnoreCase(gen.endpoint);
+
+                    boolean isAnthropicModel = isOpenCode && (isGo
+                        ? (modelLower.startsWith("minimax") || modelLower.startsWith("qwen") || modelLower.startsWith("claude"))
+                        : (modelLower.startsWith("claude") || modelLower.startsWith("qwen")));
+
+                    boolean isResponsesModel = isOpenCode && (modelLower.startsWith("muse") || modelLower.startsWith("gpt") || modelLower.startsWith("grok"));
+
                     String completionsUrl = "https://api.llmgateway.io/v1/chat/completions";
-                    if ("OpenCode Go".equalsIgnoreCase(gen.endpoint)) {
-                        completionsUrl = "https://opencode.ai/zen/go/v1/chat/completions";
+                    if (isGo) {
+                        if (isResponsesModel) {
+                            completionsUrl = "https://opencode.ai/zen/go/v1/responses";
+                        } else if (isAnthropicModel) {
+                            completionsUrl = "https://opencode.ai/zen/go/v1/messages";
+                        } else {
+                            completionsUrl = "https://opencode.ai/zen/go/v1/chat/completions";
+                        }
                     } else if ("OpenCode Zen".equalsIgnoreCase(gen.endpoint)) {
-                        completionsUrl = "https://opencode.ai/zen/v1/chat/completions";
+                        if (isResponsesModel) {
+                            completionsUrl = "https://opencode.ai/zen/v1/responses";
+                        } else if (isAnthropicModel) {
+                            completionsUrl = "https://opencode.ai/zen/v1/messages";
+                        } else {
+                            completionsUrl = "https://opencode.ai/zen/v1/chat/completions";
+                        }
+                    }
+
+                    JSONObject requestPayload = new JSONObject();
+                    requestPayload.put("model", gen.model);
+                    requestPayload.put("stream", true);
+
+                    if (isAnthropicModel) {
+                        requestPayload.put("max_tokens", 4096);
+                        requestPayload.put("messages", messages);
+                    } else if (isResponsesModel) {
+                        requestPayload.put("input", messages);
+                    } else {
+                        requestPayload.put("messages", messages);
                     }
 
                     Request.Builder reqBuilder = new Request.Builder()
                             .url(completionsUrl)
                             .addHeader("x-source", X_SOURCE_HEADER)
                             .addHeader("User-Agent", USER_AGENT_OPENCODE)
-                            .post(RequestBody.create(MediaType.parse("application/json"), outboundPayload.toString()));
+                            .post(RequestBody.create(MediaType.parse("application/json"), requestPayload.toString()));
+
+                    if (isOpenCode) {
+                        String sessionId = gen.conversationId != null && !gen.conversationId.isEmpty() ? gen.conversationId : UUID.randomUUID().toString();
+                        reqBuilder.addHeader("x-opencode-session", sessionId);
+                    }
 
                     if (!token.isEmpty()) {
+                        if (isAnthropicModel) {
+                            reqBuilder.addHeader("x-api-key", token);
+                            reqBuilder.addHeader("anthropic-version", "2023-06-01");
+                        }
                         reqBuilder.addHeader("Authorization", "Bearer " + token);
                     }
 
@@ -874,25 +918,44 @@ public class LocalServer extends NanoHTTPD {
                                         }
                                         try {
                                             JSONObject deltaObj = new JSONObject(dataStr);
+                                            String chunkText = null;
+
+                                            // 1. OpenAI Chat Completions format
                                             JSONArray choices = deltaObj.optJSONArray("choices");
                                             if (choices != null && choices.length() > 0) {
                                                 JSONObject delta = choices.getJSONObject(0).optJSONObject("delta");
                                                 if (delta != null && delta.has("content")) {
-                                                    String content = delta.getString("content");
-                                                    fullResponse.append(content);
-
-                                                    JSONObject sseData = new JSONObject();
-                                                    sseData.put("message", true);
-                                                    sseData.put("initial", false);
-                                                    sseData.put("text", fullResponse.toString());
-                                                    sseData.put("messageId", gen.responseMessageId);
-                                                    sseData.put("parentMessageId", gen.userMessageId);
-                                                    sseData.put("conversationId", gen.conversationId);
-                                                    sseData.put("sender", gen.model);
-
-                                                    out.write(("event: message\ndata: " + sseData.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
-                                                    out.flush();
+                                                    chunkText = delta.getString("content");
                                                 }
+                                            }
+
+                                            // 2. OpenAI Responses API format (response.output_text.delta)
+                                            if (chunkText == null && "response.output_text.delta".equals(deltaObj.optString("type"))) {
+                                                chunkText = deltaObj.optString("delta", "");
+                                            }
+
+                                            // 3. Anthropic Messages API format (content_block_delta)
+                                            if (chunkText == null && "content_block_delta".equals(deltaObj.optString("type"))) {
+                                                JSONObject delta = deltaObj.optJSONObject("delta");
+                                                if (delta != null && delta.has("text")) {
+                                                    chunkText = delta.getString("text");
+                                                }
+                                            }
+
+                                            if (chunkText != null && !chunkText.isEmpty()) {
+                                                fullResponse.append(chunkText);
+
+                                                JSONObject sseData = new JSONObject();
+                                                sseData.put("message", true);
+                                                sseData.put("initial", false);
+                                                sseData.put("text", fullResponse.toString());
+                                                sseData.put("messageId", gen.responseMessageId);
+                                                sseData.put("parentMessageId", gen.userMessageId);
+                                                sseData.put("conversationId", gen.conversationId);
+                                                sseData.put("sender", gen.model);
+
+                                                out.write(("event: message\ndata: " + sseData.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
+                                                out.flush();
                                             }
                                         } catch (Exception ignored) {}
                                     }
@@ -1035,20 +1098,64 @@ public class LocalServer extends NanoHTTPD {
 
             outboundPayload.put("messages", messages);
 
+            String modelLower = outboundModel != null ? outboundModel.toLowerCase() : "";
+            boolean isOpenCode = "OpenCode Go".equalsIgnoreCase(endpoint) || "OpenCode Zen".equalsIgnoreCase(endpoint);
+            boolean isGo = "OpenCode Go".equalsIgnoreCase(endpoint);
+
+            boolean isAnthropicModel = isOpenCode && (isGo
+                ? (modelLower.startsWith("minimax") || modelLower.startsWith("qwen") || modelLower.startsWith("claude"))
+                : (modelLower.startsWith("claude") || modelLower.startsWith("qwen")));
+
+            boolean isResponsesModel = isOpenCode && (modelLower.startsWith("muse") || modelLower.startsWith("gpt") || modelLower.startsWith("grok"));
+
             String completionsUrl = "https://api.llmgateway.io/v1/chat/completions";
-            if ("OpenCode Go".equalsIgnoreCase(endpoint)) {
-                completionsUrl = "https://opencode.ai/zen/go/v1/chat/completions";
+            if (isGo) {
+                if (isResponsesModel) {
+                    completionsUrl = "https://opencode.ai/zen/go/v1/responses";
+                } else if (isAnthropicModel) {
+                    completionsUrl = "https://opencode.ai/zen/go/v1/messages";
+                } else {
+                    completionsUrl = "https://opencode.ai/zen/go/v1/chat/completions";
+                }
             } else if ("OpenCode Zen".equalsIgnoreCase(endpoint)) {
-                completionsUrl = "https://opencode.ai/zen/v1/chat/completions";
+                if (isResponsesModel) {
+                    completionsUrl = "https://opencode.ai/zen/v1/responses";
+                } else if (isAnthropicModel) {
+                    completionsUrl = "https://opencode.ai/zen/v1/messages";
+                } else {
+                    completionsUrl = "https://opencode.ai/zen/v1/chat/completions";
+                }
+            }
+
+            JSONObject requestPayload = new JSONObject();
+            requestPayload.put("model", outboundModel);
+            requestPayload.put("stream", true);
+
+            if (isAnthropicModel) {
+                requestPayload.put("max_tokens", 4096);
+                requestPayload.put("messages", messages);
+            } else if (isResponsesModel) {
+                requestPayload.put("input", messages);
+            } else {
+                requestPayload.put("messages", messages);
             }
 
             Request.Builder reqBuilder = new Request.Builder()
                     .url(completionsUrl)
                     .addHeader("x-source", X_SOURCE_HEADER)
                     .addHeader("User-Agent", USER_AGENT_OPENCODE)
-                    .post(RequestBody.create(MediaType.parse("application/json"), outboundPayload.toString()));
+                    .post(RequestBody.create(MediaType.parse("application/json"), requestPayload.toString()));
+
+            if (isOpenCode) {
+                String sessionId = conversationId != null && !conversationId.isEmpty() ? conversationId : UUID.randomUUID().toString();
+                reqBuilder.addHeader("x-opencode-session", sessionId);
+            }
 
             if (!token.isEmpty()) {
+                if (isAnthropicModel) {
+                    reqBuilder.addHeader("x-api-key", token);
+                    reqBuilder.addHeader("anthropic-version", "2023-06-01");
+                }
                 reqBuilder.addHeader("Authorization", "Bearer " + token);
             }
 
@@ -1067,7 +1174,7 @@ public class LocalServer extends NanoHTTPD {
                                 .put("text", errMsg)
                                 .put("messageId", messageId)
                                 .put("conversationId", conversationId)
-                                .put("error", true)
+                                .put("sender", model)
                                 .toString() + "\n\n";
                         out.write(sseErr.getBytes(StandardCharsets.UTF_8));
                         out.write("event: error\ndata: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
@@ -1098,27 +1205,44 @@ public class LocalServer extends NanoHTTPD {
                                 }
                                 try {
                                     JSONObject deltaObj = new JSONObject(dataStr);
+                                    String chunkText = null;
+
+                                    // 1. OpenAI Chat Completions format
                                     JSONArray choices = deltaObj.optJSONArray("choices");
                                     if (choices != null && choices.length() > 0) {
                                         JSONObject delta = choices.getJSONObject(0).optJSONObject("delta");
                                         if (delta != null && delta.has("content")) {
-                                            String content = delta.getString("content");
-                                            fullResponse.append(content);
-
-                                            JSONObject sseData = new JSONObject();
-                                            sseData.put("text", fullResponse.toString());
-                                            sseData.put("messageId", messageId);
-                                            sseData.put("conversationId", conversationId);
-                                            sseData.put("sender", model);
-
-                                            String sseMsg = "event: message\ndata: " + sseData.toString() + "\n\n";
-                                            out.write(sseMsg.getBytes(StandardCharsets.UTF_8));
-                                            out.flush();
+                                            chunkText = delta.getString("content");
                                         }
                                     }
-                                } catch (Exception parseErr) {
-                                    // ignore unparseable lines
-                                }
+
+                                    // 2. OpenAI Responses API format (response.output_text.delta)
+                                    if (chunkText == null && "response.output_text.delta".equals(deltaObj.optString("type"))) {
+                                        chunkText = deltaObj.optString("delta", "");
+                                    }
+
+                                    // 3. Anthropic Messages API format (content_block_delta)
+                                    if (chunkText == null && "content_block_delta".equals(deltaObj.optString("type"))) {
+                                        JSONObject delta = deltaObj.optJSONObject("delta");
+                                        if (delta != null && delta.has("text")) {
+                                            chunkText = delta.getString("text");
+                                        }
+                                    }
+
+                                    if (chunkText != null && !chunkText.isEmpty()) {
+                                        fullResponse.append(chunkText);
+
+                                        JSONObject sseData = new JSONObject();
+                                        sseData.put("text", fullResponse.toString());
+                                        sseData.put("messageId", messageId);
+                                        sseData.put("conversationId", conversationId);
+                                        sseData.put("sender", model);
+
+                                        String sseMsg = "event: message\ndata: " + sseData.toString() + "\n\n";
+                                        out.write(sseMsg.getBytes(StandardCharsets.UTF_8));
+                                        out.flush();
+                                    }
+                                } catch (Exception ignored) {}
                             }
                         }
                     }

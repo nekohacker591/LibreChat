@@ -309,6 +309,41 @@ function setupApplicationMenu() {
         },
         { type: 'separator' },
         {
+          label: 'View Backend Log',
+          click: () => {
+            const logPath = path.join(app.getPath('userData'), 'backend.log');
+            if (fs.existsSync(logPath)) {
+              shell.openPath(logPath);
+            } else {
+              dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'Backend Log',
+                message: 'No backend log found yet at:\n' + logPath,
+                buttons: ['OK']
+              });
+            }
+          }
+        },
+        {
+          label: 'Open Logs Folder',
+          click: () => {
+            const userDataPath = app.getPath('userData');
+            shell.openPath(userDataPath);
+          }
+        },
+        {
+          label: 'Open Server Logs Directory',
+          click: () => {
+            const serverLogsPath = path.resolve(__dirname, '..', 'api', 'logs');
+            if (fs.existsSync(serverLogsPath)) {
+              shell.openPath(serverLogsPath);
+            } else {
+              shell.openPath(path.resolve(__dirname, '..'));
+            }
+          }
+        },
+        { type: 'separator' },
+        {
           label: 'LibreChat Documentation',
           click: () => shell.openExternal('https://www.librechat.ai/docs')
         },

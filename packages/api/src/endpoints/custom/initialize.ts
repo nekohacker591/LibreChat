@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Providers } from '@librechat/agents';
 import {
   ErrorTypes,
@@ -343,6 +344,23 @@ export async function initializeCustom(
     clientOptions.headers = headers;
   }
 
+  const isOpenCode =
+    endpoint.toLowerCase().includes('opencode') ||
+    (typeof baseURL === 'string' && baseURL.includes('opencode.ai'));
+  if (isOpenCode) {
+    const headers = { ...((clientOptions.headers as Record<string, string>) || {}) };
+    if (!headers['x-opencode-session'] && !headers['X-Opencode-Session']) {
+      const sessionId =
+        (requestBody && typeof requestBody.conversationId === 'string' && requestBody.conversationId)
+          ? requestBody.conversationId
+          : (params as Record<string, unknown>).conversationId && typeof (params as Record<string, unknown>).conversationId === 'string'
+            ? ((params as Record<string, unknown>).conversationId as string)
+            : crypto.randomUUID();
+      headers['x-opencode-session'] = sessionId;
+    }
+    clientOptions.headers = headers;
+  }
+
   const modelOptions = { ...(model_parameters ?? {}), user: userId };
   if (
     endpoint.toLowerCase().includes('devpass') &&
@@ -352,27 +370,54 @@ export async function initializeCustom(
     modelOptions.model = modelOptions.model.substring(modelOptions.model.lastIndexOf('/') + 1);
   }
 
+  const isGo =
+    endpoint.toLowerCase().includes('go') ||
+    (typeof baseURL === 'string' && baseURL.includes('/go'));
+  const selectedModel = (typeof modelOptions.model === 'string' ? modelOptions.model : '').toLowerCase();
+
+  const isOpenCodeAnthropic =
+    isOpenCode &&
+    (isGo
+      ? selectedModel.startsWith('minimax') || selectedModel.startsWith('qwen') || selectedModel.startsWith('claude')
+      : selectedModel.startsWith('claude') || selectedModel.startsWith('qwen'));
+
+  const isOpenCodeResponses =
+    isOpenCode &&
+    (selectedModel.startsWith('muse') || selectedModel.startsWith('gpt') || selectedModel.startsWith('grok'));
+
   let options: InitializeResultBase;
-  if (endpointConfig.provider === EModelEndpoint.anthropic) {
+  if (endpointConfig.provider === EModelEndpoint.anthropic || isOpenCodeAnthropic) {
     /** Native Anthropic `/v1/messages` client against the custom baseURL/apiKey.
+     *  Anthropic SDK appends `/v1/messages`, so strip `/v1` from baseURL.
      *  `useLegacyContent` is intentionally left unset (matches the built-in
      *  Anthropic endpoint, which uses native content formatting). */
+    const anthropicBaseURL = (baseURL ?? '').replace(/\/v1\/?$/, '');
     options = buildAnthropicCustomConfig({
       apiKey,
-      baseURL,
+      baseURL: anthropicBaseURL,
       modelOptions: modelOptions as AnthropicModelOptions,
-      endpointConfig,
+      endpointConfig: {
+        ...endpointConfig,
+        headers: (clientOptions.headers as Record<string, string>) ?? endpointConfig.headers,
+      },
       userProvidesURL,
       allowedAddresses: appConfig?.endpoints?.allowedAddresses,
     });
     options.endpointTokenConfig = endpointTokenConfig;
   } else {
+    if (isOpenCodeResponses) {
+      (modelOptions as Record<string, unknown>).useResponsesApi = true;
+      clientOptions.useResponsesApi = true;
+    }
     const finalClientOptions = {
       modelOptions,
       ...clientOptions,
     };
     options = getOpenAIConfig(apiKey, finalClientOptions, endpoint);
     if (options != null) {
+      if (isOpenCodeResponses && options.llmConfig) {
+        (options.llmConfig as Record<string, unknown>).useResponsesApi = true;
+      }
       options.useLegacyContent = true;
       options.endpointTokenConfig = endpointTokenConfig;
     }
