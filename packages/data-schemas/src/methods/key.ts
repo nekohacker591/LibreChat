@@ -43,7 +43,23 @@ export function createKeyMethods(mongoose: typeof import('mongoose')): {
         }),
       );
     }
-    return await decrypt(keyValue.value);
+    try {
+      return await decrypt(keyValue.value);
+    } catch (error) {
+      /** A stored key that cannot be decrypted almost always means the
+       *  encryption credentials changed; surface the structured error so the
+       *  client prompts the user to re-enter the key instead of showing a raw
+       *  crypto failure. */
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(
+        `[getUserKey] Failed to decrypt stored key for user ${userId}, name ${name}: ${message}`,
+      );
+      throw new Error(
+        JSON.stringify({
+          type: ErrorTypes.INVALID_USER_KEY,
+        }),
+      );
+    }
   }
 
   /**

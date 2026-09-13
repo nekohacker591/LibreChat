@@ -1,9 +1,16 @@
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
-const crypto = require('crypto');
 const os = require('os');
 const { MongoMemoryServer } = require('mongodb-memory-server');
+const {
+  loadOrCreateCredentials,
+  applyCredentialsToEnv,
+  parseEnvFile,
+} = require('./lib/credential-store');
+const { reconcileCredentialMetadata } = require('./lib/credential-metadata');
+
+const rootDir = path.resolve(__dirname, '..');
 
 function isPortInUse(port) {
   return new Promise((resolve) => {
@@ -18,7 +25,11 @@ function isPortInUse(port) {
 }
 
 function getAppDataDir() {
-  const appData = process.env.APPDATA || (process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Preferences') : path.join(os.homedir(), '.local', 'share'));
+  const appData =
+    process.env.APPDATA ||
+    (process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Preferences')
+      : path.join(os.homedir(), '.local', 'share'));
   const target = path.join(appData, 'LibreChat');
   if (!fs.existsSync(target)) {
     fs.mkdirSync(target, { recursive: true });
@@ -27,7 +38,6 @@ function getAppDataDir() {
 }
 
 function ensureEnv() {
-  const rootDir = path.resolve(__dirname, '..');
   const envPath = path.join(rootDir, '.env');
   const examplePath = path.join(rootDir, '.env.example');
 
@@ -38,19 +48,15 @@ function ensureEnv() {
     content = fs.readFileSync(examplePath, 'utf8');
   }
 
-  const genHex = (n) => crypto.randomBytes(n).toString('hex');
+  /** Non-secret defaults only; credentials live in the app credential store. */
   const defaults = {
     HOST: '0.0.0.0',
     PORT: '3080',
     MONGO_URI: 'mongodb://127.0.0.1:27017/LibreChat',
     DOMAIN_CLIENT: 'http://localhost:3080',
     DOMAIN_SERVER: 'http://localhost:3080',
-    JWT_SECRET: genHex(32),
-    JWT_REFRESH_SECRET: genHex(32),
-    CREDS_KEY: genHex(32),
-    CREDS_IV: genHex(16),
     NO_INDEX: 'true',
-    LOCAL_USER: 'true'
+    LOCAL_USER: 'true',
   };
 
   let modified = false;
@@ -71,17 +77,57 @@ function ensureEnv() {
     console.log('[start-local] .env file configured.');
   }
 
-  // Also apply to process.env
-  for (const [k, v] of Object.entries(defaults)) {
-    if (!process.env[k]) {
-      process.env[k] = v;
+  /**
+   * Prefer values from the `.env` file over hard-coded defaults so the
+   * launcher never shadows configuration the user actually set. Real
+   * environment variables supplied by the caller still win.
+   */
+  const fileValues = parseEnvFile(envPath);
+  for (const [key, fallback] of Object.entries(defaults)) {
+    if (process.env[key]) {
+      continue;
     }
+    process.env[key] = fileValues[key] || fallback;
   }
+}
+
+/**
+ * Loads the stable app credentials and injects them into the process before
+ * the backend starts. After a one-time import from `.env`, the store is the
+ * single source of truth, so Set Key entries and sessions survive restarts
+ * regardless of what `.env` contains.
+ */
+function loadAppCredentials() {
+  const result = loadOrCreateCredentials({
+    appDataDir: getAppDataDir(),
+    legacyEnvPaths: [path.join(rootDir, '.env')],
+  });
+
+  const overridden = applyCredentialsToEnv(result);
+
+  if (result.imported.length > 0) {
+    console.log(
+      `[start-local] Imported ${result.imported.join(', ')} from .env into the app credential store (one-time).`,
+    );
+  }
+  if (result.generated.length > 0) {
+    console.log(
+      `[start-local] Generated ${result.generated.join(', ')} into the app credential store.`,
+    );
+  }
+  if (overridden.length > 0) {
+    console.log(
+      `[start-local] Ignoring environment values for ${overridden.join(', ')}; using the app credential store.`,
+    );
+  }
+  console.log(`[start-local] Credential store: ${result.filePath}`);
+  return result;
 }
 
 async function main() {
   console.log('[start-local] Preparing LibreChat environment...');
   ensureEnv();
+  const credentials = loadAppCredentials();
 
   const mongoInUse = await isPortInUse(27017);
   let mongoServer = null;
@@ -99,8 +145,8 @@ async function main() {
       instance: {
         port: 27017,
         dbPath: dbDir,
-        storageEngine: 'wiredTiger'
-      }
+        storageEngine: 'wiredTiger',
+      },
     });
     console.log('[start-local] Embedded database ready at:', mongoServer.getUri());
   }
@@ -115,6 +161,14 @@ async function main() {
 
   process.on('SIGINT', cleanExit);
   process.on('SIGTERM', cleanExit);
+
+  // Align the database credential marker with the app store, but only when the
+  // stored encrypted records actually decrypt with these credentials. Blindly
+  // overwriting the marker would hide real credential drift.
+  await reconcileCredentialMetadata({
+    values: credentials.values,
+    mongoUri: process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/LibreChat',
+  });
 
   console.log('[start-local] Starting LibreChat backend server...');
   require('../api/server/index.js');
