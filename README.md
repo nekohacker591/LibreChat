@@ -139,7 +139,7 @@ Download the ready-to-run release files from [**GitHub Releases v1.0.2**](https:
    - Pick any model from the **DevPass** or **LLM Gateway** dropdown and start chatting!
 
 ### Windows Desktop
-1. Run `LibreChat-Setup-1.0.1.exe` (or launch the portable `LibreChat-1.0.1.exe`).
+1. Run `LibreChat-Setup-1.0.2.exe` (or launch the portable `LibreChat-1.0.2.exe`).
 2. An animated splash screen will display while the embedded database and services initialize.
 3. Once the chat window opens (automatically signed in as Local User), click **Settings** (⚙️) -> **Provider Keys** -> enter your API token.
 4. Select your preferred model and start chatting immediately!
