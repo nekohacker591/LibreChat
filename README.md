@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/nekohacker591/LibreChat/releases/latest">
-    <img src="https://img.shields.io/github/v/release/nekohacker591/LibreChat?color=blue&label=Release%20v1.0.3" alt="Latest Release">
+    <img src="https://img.shields.io/github/v/release/nekohacker591/LibreChat?color=blue&label=Release%20v1.0.4" alt="Latest Release">
   </a>
   <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20Android-green" alt="Platforms">
   <img src="https://img.shields.io/badge/Backend-Embedded%20MongoDB%20%7C%20On--Device%20SQLite-purple" alt="Databases">
