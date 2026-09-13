@@ -222,6 +222,15 @@ const startServer = async () => {
   }
 
   await runAsSystem(seedDatabase);
+  const { isLocalUserEnabled, getOrCreateLocalUser } = require('./services/LocalUserService');
+  if (isLocalUserEnabled()) {
+    try {
+      const localUser = await getOrCreateLocalUser();
+      logger.info(`[LocalUser] Local user ready for desktop/local operation: ${localUser?.email}`);
+    } catch (localUserErr) {
+      logger.warn('[LocalUser] Failed to pre-seed local user:', localUserErr);
+    }
+  }
   /* Recover stuck `status: 'pending'` records from a crash mid-render.
    * `runAsSystem` is required — `File` is tenant-isolated and strict
    * mode rejects unscoped queries. Lazy sweep in the preview endpoint

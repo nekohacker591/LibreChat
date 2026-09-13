@@ -49,7 +49,8 @@ function ensureEnv() {
     JWT_REFRESH_SECRET: genHex(32),
     CREDS_KEY: genHex(32),
     CREDS_IV: genHex(16),
-    NO_INDEX: 'true'
+    NO_INDEX: 'true',
+    LOCAL_USER: 'true'
   };
 
   let modified = false;

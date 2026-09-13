@@ -1,9 +1,14 @@
 const { logger } = require('@librechat/data-schemas');
 const { generate2FATempToken } = require('~/server/services/twoFactorService');
 const { setAuthTokens } = require('~/server/services/AuthService');
+const { isLocalUserEnabled, getOrCreateLocalUser } = require('~/server/services/LocalUserService');
 
 const loginController = async (req, res) => {
   try {
+    if (!req.user && isLocalUserEnabled()) {
+      req.user = await getOrCreateLocalUser();
+    }
+
     if (!req.user) {
       return res.status(400).json({ message: 'Invalid credentials' });
     }

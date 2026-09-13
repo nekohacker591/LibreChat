@@ -40,6 +40,7 @@ const {
   claimOpenIDRefreshFlightDelivery,
   releaseOpenIDRefreshFlightDelivery,
 } = require('~/server/services/OpenIDRefreshFlight');
+const { isLocalUserEnabled, getOrCreateLocalUser } = require('~/server/services/LocalUserService');
 
 const AUTH_REFRESH_USER_PROJECTION = '-password -__v -totpSecret -backupCodes -federatedTokens';
 /**
@@ -614,6 +615,18 @@ const refreshController = async (req, res) => {
   /** For non-OpenID users, read refresh token from cookies */
   const refreshToken = parsedCookies.refreshToken;
   if (!refreshToken) {
+    if (isLocalUserEnabled()) {
+      try {
+        const localUser = await getOrCreateLocalUser();
+        if (localUser) {
+          const token = await setAuthTokens(localUser._id, res, null, req);
+          logger.info(`[refreshController] Auto-authenticated Local User: ${localUser.email}`);
+          return res.status(200).send({ token, user: sanitizeUserForAuthResponse(localUser) });
+        }
+      } catch (localUserErr) {
+        logger.error('[refreshController] Failed to auto-login local user:', localUserErr);
+      }
+    }
     return res.status(200).send('Refresh token not provided');
   }
 
@@ -621,6 +634,13 @@ const refreshController = async (req, res) => {
     const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
     const user = await getUserById(payload.id, AUTH_REFRESH_USER_PROJECTION);
     if (!user) {
+      if (isLocalUserEnabled()) {
+        const localUser = await getOrCreateLocalUser();
+        if (localUser) {
+          const token = await setAuthTokens(localUser._id, res, null, req);
+          return res.status(200).send({ token, user: sanitizeUserForAuthResponse(localUser) });
+        }
+      }
       return res.status(401).redirect('/login');
     }
 
@@ -646,13 +666,45 @@ const refreshController = async (req, res) => {
       res.status(200).send({ token, user: sanitizeUserForAuthResponse(user) });
     } else if (req?.query?.retry) {
       // Retrying from a refresh token request that failed (401)
+      if (isLocalUserEnabled()) {
+        const localUser = await getOrCreateLocalUser();
+        if (localUser) {
+          const token = await setAuthTokens(localUser._id, res, null, req);
+          return res.status(200).send({ token, user: sanitizeUserForAuthResponse(localUser) });
+        }
+      }
       res.status(403).send('No session found');
     } else if (payload.exp < Date.now() / 1000) {
+      if (isLocalUserEnabled()) {
+        const localUser = await getOrCreateLocalUser();
+        if (localUser) {
+          const token = await setAuthTokens(localUser._id, res, null, req);
+          return res.status(200).send({ token, user: sanitizeUserForAuthResponse(localUser) });
+        }
+      }
       res.status(403).redirect('/login');
     } else {
+      if (isLocalUserEnabled()) {
+        const localUser = await getOrCreateLocalUser();
+        if (localUser) {
+          const token = await setAuthTokens(localUser._id, res, null, req);
+          return res.status(200).send({ token, user: sanitizeUserForAuthResponse(localUser) });
+        }
+      }
       res.status(401).send('Refresh token expired or not found for this user');
     }
   } catch (err) {
+    if (isLocalUserEnabled()) {
+      try {
+        const localUser = await getOrCreateLocalUser();
+        if (localUser) {
+          const token = await setAuthTokens(localUser._id, res, null, req);
+          return res.status(200).send({ token, user: sanitizeUserForAuthResponse(localUser) });
+        }
+      } catch (fallbackErr) {
+        logger.error('[refreshController] Local user fallback failed:', fallbackErr);
+      }
+    }
     logger.error(`[refreshController] Invalid refresh token:`, err);
     res.status(403).send('Invalid refresh token');
   }

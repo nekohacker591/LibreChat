@@ -122,7 +122,8 @@ async function startBackend({ userDataPath, onStatus }) {
     ...process.env,
     PORT: '3080',
     HOST: '0.0.0.0',
-    NODE_ENV: 'production'
+    NODE_ENV: 'production',
+    LOCAL_USER: 'true'
   };
 
   try {

@@ -10,6 +10,7 @@ const {
   recordRumProxyRequest,
   getValidOpenIdReuseUserId,
 } = require('@librechat/api');
+const { isLocalUserEnabled, getOrCreateLocalUser } = require('~/server/services/LocalUserService');
 
 const hasPassportStrategy = (strategy) =>
   typeof passport._strategy === 'function' && passport._strategy(strategy) != null;
@@ -189,6 +190,34 @@ const requireJwtAuth = async (req, res, next) => {
             status: status || 401,
           });
           return authenticateWithStrategy(index + 1);
+        }
+        if (isLocalUserEnabled()) {
+          return getOrCreateLocalUser()
+            .then((localUser) => {
+              if (localUser) {
+                req.user = localUser;
+                req.authStrategy = 'local-user';
+                return tenantContextMiddleware(req, res, (tenantErr) => {
+                  if (tenantErr) {
+                    return next(tenantErr);
+                  }
+                  refreshCloudFrontCookies(req, res, next);
+                });
+              }
+              logAuthenticationFailure({ strategy, info, status, err });
+              return res.status(status || 401).json({
+                message: info?.message || 'Unauthorized',
+                ...(info?.code === ACCOUNT_DELETION_CODE && { code: ACCOUNT_DELETION_CODE }),
+              });
+            })
+            .catch((localErr) => {
+              logger.error('[requireJwtAuth] Error resolving local user fallback:', localErr);
+              logAuthenticationFailure({ strategy, info, status, err });
+              return res.status(status || 401).json({
+                message: info?.message || 'Unauthorized',
+                ...(info?.code === ACCOUNT_DELETION_CODE && { code: ACCOUNT_DELETION_CODE }),
+              });
+            });
         }
         logAuthenticationFailure({ strategy, info, status, err });
         return res.status(status || 401).json({
