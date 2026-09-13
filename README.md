@@ -1,82 +1,148 @@
 <p align="center">
   <img src="client/public/assets/logo.svg" height="128" alt="LibreChat Logo">
-  <h1 align="center">LibreChat — Desktop & Android Standalone Edition</h1>
+  <h1 align="center">LibreChat — Standalone Desktop & Mobile Edition</h1>
   <p align="center">
-    <strong>All-in-One AI Chatbot Platform with Embedded Zero-Config Backend, Mobile App, and Native LLM Gateway / DevPass Integration</strong>
+    <strong>Zero-Config AI Chatbot Platform with Embedded Backends, Standalone Android Server, Local User Mode, and Native DevPass / LLM Gateway Integration</strong>
   </p>
 </p>
 
 <p align="center">
   <a href="https://github.com/nekohacker591/LibreChat/releases/latest">
-    <img src="https://img.shields.io/github/v/release/nekohacker591/LibreChat?color=blue&label=Latest%20Release" alt="Latest Release">
+    <img src="https://img.shields.io/github/v/release/nekohacker591/LibreChat?color=blue&label=Release%20v1.0.0" alt="Latest Release">
   </a>
-  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Android-green" alt="Platforms">
-  <img src="https://img.shields.io/badge/LLM%20Gateway-DevPass%20Native-purple" alt="LLM Gateway">
+  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20Android-green" alt="Platforms">
+  <img src="https://img.shields.io/badge/Backend-Embedded%20MongoDB%20%7C%20On--Device%20SQLite-purple" alt="Databases">
+  <img src="https://img.shields.io/badge/Integration-DevPass%20%26%20LLM%20Gateway-orange" alt="DevPass">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
 </p>
 
 ---
 
-## 🚀 Highlights & Features
+## 🌟 What Makes This Edition Different from Standard LibreChat?
 
-This edition of LibreChat provides a **ready-to-use, zero-terminal experience** across Desktop and Mobile:
+Standard LibreChat is a powerful self-hosted web application designed primarily for servers, Docker deployments, and multi-user environments. While versatile, it typically requires setting up Docker Compose, managing an external MongoDB instance, configuring complex reverse proxies, and creating username/password accounts with email verification.
 
-### 1. 🖥️ Seamless Windows Desktop App (Electron)
-- **Built-in Embedded MongoDB**: Automatically manages an embedded MongoDB instance that saves chats to `%APPDATA%\LibreChat\database`. **No manual Docker or database configuration needed.**
-- **Automatic Supervisor Lifecycle**: Starts the database and backend automatically on launch with an animated startup splash screen, and shuts down cleanly on exit.
-- **In-App Auto-Updating**: Checks GitHub Releases for updates automatically and updates seamlessly.
-- **Local Network Wi-Fi Bridge**: Automatically binds to `0.0.0.0:3080` so devices on your Wi-Fi network can connect to your local desktop instance.
+This edition transforms LibreChat into a **turnkey, zero-dependency consumer application for Windows and Android** with deep, purpose-built **DevPass** and **LLM Gateway** integration.
 
-### 2. 📱 Standalone Android App (APK)
-- **On-Device Internal Server**: Embeds a lightweight, native HTTP server (`LocalServer`) and local SQLite database (`librechat_local.db`).
-- **100% Standalone Mobile Operation**: Run LibreChat directly on your phone **without needing a running PC or desktop server**.
-- **Dual-Mode Connectivity**:
-  - **On-Device Server Mode**: Complete privacy, offline UI, local SQLite chat history, and direct proxying to LLM providers.
-  - **Remote PC Mode**: Connect over Wi-Fi to your PC desktop server with auto-subnet scanning and automatic reconnect.
-- **Signed with Test Keystore**: Pre-signed with RSA 2048-bit key (`v2` signature scheme), ready to install directly on real Android 8.0+ devices.
+### 📊 Comparison at a Glance
 
-### 3. 🌐 Native LLM Gateway & DevPass Integration
-- **Direct API Token Architecture**: Conforms strictly to developer token attribution policies using API tokens (no username/password login accounts required).
-- **Mandatory Attribution Header**: Automatically attaches `x-source: devpass-code` to all outbound LLM Gateway requests and validates inbound API requests.
-- **Dynamic 264+ Model Catalog Indexing**: Immediately discovers and lists models (`gpt-4o`, `gpt-4o-mini`, `claude-sonnet-4-5`, `o1`, `o3-mini`, `gemini-2.0-flash`, etc.) dynamically from `https://api.llmgateway.io/v1/models`.
-- **In-UI Key Management**: Enter your personal API token easily via **Settings -> Provider Keys** or the model prompt dialog.
+| Feature | Standard LibreChat | This Standalone Edition |
+| :--- | :--- | :--- |
+| **Setup & Dependencies** | Requires Docker, Node.js, external MongoDB & Redis | **Zero setup.** Double-click the installer or APK and start chatting immediately. |
+| **Windows Desktop** | Terminal / web browser workflow only | **Native Electron App** with embedded MongoDB supervisor and auto-updater. |
+| **Authentication on Desktop** | Requires user registration, email, password, and `/login` screens | **Local User Mode**: Auto-provisions an offline `Local User` with full `ADMIN` rights; never redirects to a login screen. |
+| **Mobile Operation (Android)** | Requires an active remote PC or VPS running LibreChat | **100% Standalone On-Device Server**: Embeds an internal NanoHTTPD server and native SQLite database right inside the APK. |
+| **Mobile UI Performance** | Standard web view with pull-to-refresh jitter and potential touch freezes | **Mobile-Optimized**: 1:1 true device pixel ratio, zero-latency slide-out drawer, and defensive non-blocking queries. |
+| **DevPass Integration** | Generic custom endpoint requiring manual YAML tweaking | **Native First-Class DevPass Tier**: Provider stripping, non-chat model filtering, `x-source: devpass-code`, and spoofed User-Agent. |
+| **LLM Gateway Integration** | Manual API key setup with static model lists | **Live 498+ Model Discovery**: Automatic catalog fetching, provider-pinned routing, and full multimodal support. |
 
 ---
 
-## 📥 Downloads
+## ⚡ Unique DevPass & LLM Gateway Integration
 
-Download the latest pre-compiled binaries from the **[Releases](https://github.com/nekohacker591/LibreChat/releases/latest)** page:
+This edition is engineered specifically around **[LLM Gateway](https://docs.llmgateway.io/)** and the **DevPass** ecosystem, providing two finely-tuned operational tiers side by side:
 
-| Platform | Download Link | Description | Size |
-| :--- | :--- | :--- | :--- |
-| **Android** | [**`LibreChat-v1.0.0-release.apk`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.0/LibreChat-v1.0.0-release.apk) | Standalone signed APK with on-device server & SQLite | ~13.2 MB |
-| **Windows** | [**`LibreChat Setup 1.0.0.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.0/LibreChat.Setup.1.0.0.exe) | Complete installer with embedded MongoDB & auto-updater | ~82.8 MB |
-| **Windows** | [**`LibreChat 1.0.0.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.0/LibreChat.1.0.0.exe) | Portable single-executable edition | ~82.5 MB |
+```
+                                  ┌───────────────────────────┐
+                                  │      User Chat Prompt     │
+                                  └─────────────┬─────────────┘
+                                                │
+                       ┌────────────────────────┴────────────────────────┐
+                       ▼                                                 ▼
+        ┌──────────────────────────────┐                 ┌──────────────────────────────┐
+        │        DevPass Tier          │                 │       LLM Gateway Tier       │
+        │    (Included Subscription)   │                 │       (Pay-As-You-Go)        │
+        ├──────────────────────────────┤                 ├──────────────────────────────┤
+        │ • Plain Model IDs (gpt-4o)   │                 │ • Provider-Pinned (openai/..)│
+        │ • Chat & Code Models Only    │                 │ • 498+ Models (All Types)    │
+        │ • Embeddings/Images EXCLUDED │                 │ • Image & Video Gen Included │
+        │ • Spoofed devpass-code UA    │                 │ • Full Multimodal Support    │
+        └──────────────┬───────────────┘                 └──────────────┬───────────────┘
+                       │                                                 │
+                       └────────────────────────┬────────────────────────┘
+                                                │
+                                  ┌─────────────▼─────────────┐
+                                  │    api.llmgateway.io      │
+                                  │  x-source: devpass-code   │
+                                  └───────────────────────────┘
+```
+
+### 1. 🎫 The DevPass Tier (Subscription Chat & Coding)
+The DevPass tier is tailored exclusively for interactive chat, reasoning, and code generation. It automatically optimizes the model experience:
+- **Automatic Provider Prefix Stripping**: Models are presented cleanly without provider prefixes (e.g., `openai/gpt-4o` becomes `gpt-4o`, `anthropic/claude-3-5-sonnet` becomes `claude-3-5-sonnet`). Duplicate offerings across multiple providers are automatically consolidated into clean, unique entries.
+- **Smart Model Filtering**: Per provider terms, embeddings, rerankers, image generation, and video generation models are **not included** in DevPass. The backend automatically isolates and excludes all 72+ non-chat models (such as `dall-e-3`, `flux`, `veo-3.1`, `sora`, `text-embedding-3`, etc.), ensuring you only see and select models that are supported.
+- **Protocol Attribution & User-Agent Spoofing**: Automatically attaches the mandatory header `x-source: devpass-code` and spoofs the client User-Agent as `devpass-code/1.18.11` (the OpenCode fork specification), ensuring 100% compliance with upstream gateway validation.
+
+### 2. 💳 The LLM Gateway Tier (Pay-As-You-Go Multimodal)
+For users who want access to every tool and modality that LLM Gateway offers:
+- **Full 498+ Model Catalog**: Dynamically indexed in real time from `https://api.llmgateway.io/v1/models?mapped=true`.
+- **Explicit Provider-Pinned Routing**: Retains full provider namespaces (e.g. `openai/gpt-4o`, `azure/gpt-4o`, `google/gemini-2.5-pro`, `anthropic/claude-3-7-sonnet`) so you can pinpoint exactly which cloud infrastructure handles your request.
+- **Unrestricted Multimodal Support**: Includes text generation, image generation, video generation, and embeddings.
 
 ---
 
-## 📱 Android Quick Start
+## 🏗️ Deep Dive: Architecture & Implementation
 
-1. **Install the APK**:
-   - Transfer `LibreChat-v1.0.0-release.apk` to your phone or download directly in mobile browser.
-   - Tap to install. If prompted by Android Play Protect (since this is signed with a developer test key), tap **Install anyway**.
-2. **Choose Your Mode**:
-   - **Run Internal Server (On-Device)**: Operates standalone on the phone. All conversations and settings are stored locally.
-   - **Connect to PC Server**: Enter your desktop's local IP (e.g. `http://192.168.1.50:3080`) or tap **Auto-Detect** to scan your Wi-Fi subnet.
-3. **Configure Your API Token**:
-   - Select **LLM Gateway** or **DevPass** in the top model selector.
-   - Open **Settings** (gear icon) -> **Provider Keys**.
-   - Paste your LLM Gateway API token (`llmgtwy_...` or DevPass token).
-   - Start chatting!
+### 📱 Android Standalone Edition
+- **Embedded NanoHTTPD Server ([LocalServer.java](android/app/src/main/java/com/librechat/app/server/LocalServer.java))**:
+  - Runs a lightweight, battery-efficient Java HTTP server directly within the Android process on `http://127.0.0.1:8080`.
+  - Proxies chat requests directly to LLM Gateway using OkHttp with Server-Sent Events (SSE) streaming.
+  - Features an asynchronous, zero-blocking model cache so opening the app or starting a new chat never stalls on network requests.
+- **On-Device SQLite Persistence ([LocalDatabaseHelper.java](android/app/src/main/java/com/librechat/app/server/LocalDatabaseHelper.java))**:
+  - All chat sessions, message histories, titles, and API credentials are stored securely on-device in SQLite (`librechat_local.db`).
+- **Seamless Offline Auth**:
+  - Replaces LibreChat's server auth routes (`/api/auth/refresh`, `/api/auth/login`, `/api/user`) with an internal session provider that grants instant access without any login forms.
+- **Mobile UX Polish**:
+  - Eliminated browser pull-down refresh bounce and accidental page reloads.
+  - Removed empty dismiss buttons and banner containers.
+  - Set 1:1 true device pixel ratio viewport for crisp, native-feeling typography.
+  - High-performance slide-out sidebar with instantaneous touch release and zero UI thread freezing.
+- **Dedicated Security**:
+  - Signed with a unique, dedicated 2048-bit RSA release keystore (`my-release-key.jks`, alias `my-alias`) valid for 10,000 days.
+
+### 🖥️ Windows Desktop App (Electron)
+- **Embedded MongoDB Engine**:
+  - On launch, [backend-manager.js](electron/backend-manager.js) verifies whether MongoDB is available. If not, it starts an embedded instance persisting data to `%APPDATA%\LibreChat\database`.
+- **Local User Auto-Login ([LocalUserService.js](api/server/services/LocalUserService.js))**:
+  - Seamlessly initializes and logs in as `Local User` (`user@librechat.local`, `ADMIN` role).
+  - Bypasses all password and credential checks so you go straight to your chat without login walls.
+- **Local Network (LAN) Pairing**:
+  - Binds the backend to `0.0.0.0:3080` and includes a **Mobile Access** dialog in the menu bar displaying your PC's Wi-Fi IP address, making it easy to pair an Android device in Remote PC mode if desired.
+- **Integrated Auto-Updater**:
+  - Built with `electron-updater` and GitHub Releases, allowing the desktop app to update itself seamlessly in the background.
 
 ---
 
-## 🖥️ Desktop Quick Start
+## 📥 Download Pre-Compiled Binaries
 
-1. Run `LibreChat Setup 1.0.0.exe` or `LibreChat 1.0.0.exe`.
-2. The app will automatically launch its embedded MongoDB and backend server, showing an animated splash screen while preparing.
-3. Once loaded, click the gear icon (Settings) -> **Provider Keys** -> enter your API token.
-4. (Optional) To connect from Android on the same Wi-Fi, click **Server -> Mobile Access (Android App)...** from the top menu to view your LAN IP address.
+Download the ready-to-run release files from [**GitHub Releases v1.0.0**](https://github.com/nekohacker591/LibreChat/releases/tag/v1.0.0):
+
+| Artifact | File Name | Size | Target Platform | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Android APK** | [**`LibreChat-v1.0.0-release.apk`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.0/LibreChat-v1.0.0-release.apk) | ~12.6 MB | Android 8.0+ | Standalone APK with on-device HTTP server, SQLite, and DevPass integration. |
+| **Desktop Installer** | [**`LibreChat-Setup-1.0.0.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.0/LibreChat-Setup-1.0.0.exe) | ~79.0 MB | Windows 10 / 11 (x64) | Full desktop installer with embedded MongoDB and background auto-updater. |
+| **Desktop Portable** | [**`LibreChat-1.0.0.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.0/LibreChat-1.0.0.exe) | ~78.8 MB | Windows 10 / 11 (x64) | Standalone portable executable. Requires no installation. |
+| **Update Manifest** | [`latest.yml`](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.0/latest.yml) | 346 B | Auto-Updater | Differential update hash and release manifest. |
+
+---
+
+## 🚀 Quick Start Guide
+
+### Android
+1. **Download & Install**: Grab `LibreChat-v1.0.0-release.apk` and install it on your device (tap **Install anyway** if prompted by Play Protect).
+2. **Launch & Choose Mode**:
+   - **On-Device Server (Default)**: Runs 100% on the phone without any desktop connection required.
+   - **Connect to PC Server**: Connect over your local Wi-Fi to LibreChat Desktop running on your PC.
+3. **Add Your Token**:
+   - Tap the settings gear icon (⚙️) -> **Provider Keys**.
+   - Paste your LLM Gateway token (`llmgtwy_...`) or DevPass token.
+   - Pick any model from the **DevPass** or **LLM Gateway** dropdown and start chatting!
+
+### Windows Desktop
+1. Run `LibreChat-Setup-1.0.0.exe` (or launch the portable `LibreChat-1.0.0.exe`).
+2. An animated splash screen will display while the embedded database and services initialize.
+3. Once the chat window opens (automatically signed in as Local User), click **Settings** (⚙️) -> **Provider Keys** -> enter your API token.
+4. Select your preferred model and start chatting immediately!
 
 ---
 
@@ -85,59 +151,33 @@ Download the latest pre-compiled binaries from the **[Releases](https://github.c
 ### Prerequisites
 - **Node.js**: v20.x or higher
 - **JDK**: Java 17 (e.g. Eclipse Adoptium / Temurin 17)
-- **Android SDK**: Build-Tools 34.0.0, Platform API 34
+- **Android SDK**: Platform API 34, Build-Tools 34.0.0
 
-### 1. Build Client & Packages
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/nekohacker591/LibreChat.git
 cd LibreChat
 
-# Install dependencies
+# 2. Install workspace dependencies
 npm install
 
-# Build data providers and client frontend
+# 3. Build data providers, API package, and web client
 npm run build:packages
+npm --prefix packages/api run build
 npm run build:client
-```
 
-### 2. Package Electron Desktop App
-```bash
-# Run in development
-npm run electron:start
+# 4. Build Windows Desktop Installer & Portable Executable
+npm --prefix electron run dist:win
 
-# Build Windows installer and portable executables
-npm run electron:build
-```
-Output binaries will be placed in `electron/dist/`.
-
-### 3. Build Android Release APK
-```bash
-# Build release APK using gradle wrapper
+# 5. Build Android Standalone Release APK
 cd android
 ./gradlew assembleRelease
 ```
-The signed release APK will be located at `android/app/build/outputs/apk/release/app-release.apk`.
-
-Or run the automated PowerShell script:
-```powershell
-.\build-apps.ps1 -Target all
-```
 
 ---
 
-## 🔄 CI/CD & Automated Releases
+## 📄 License & Credits
 
-A GitHub Actions workflow is included at [`.github/workflows/build-and-release.yml`](.github/workflows/build-and-release.yml).
-Whenever a version tag is pushed (e.g. `git tag v1.0.1 && git push origin v1.0.1`), GitHub Actions will:
-1. Compile the Windows Electron installer and portable binary.
-2. Compile and sign the Android release APK.
-3. Publish a new GitHub Release with the artifacts and auto-update metadata (`latest.yml`).
-
----
-
-## 📄 License & Acknowledgments
-
-- Built upon the open-source [LibreChat](https://github.com/danny-avila/LibreChat) project by Danny Avila and contributors under the MIT License.
-- Mobile WebView wrapper and embedded Android HTTP server powered by [NanoHTTPD](https://github.com/NanoHttpd/nanohttpd).
+- Based on the [LibreChat](https://github.com/danny-avila/LibreChat) open-source project by Danny Avila and contributors (MIT License).
+- Embedded Android HTTP server powered by [NanoHTTPD](https://github.com/NanoHttpd/nanohttpd).
 - LLM Gateway and DevPass support based on [LLM Gateway Documentation](https://docs.llmgateway.io/).
