@@ -972,6 +972,10 @@ function ChatFormWrapper({
       conversation?.codeApprovalMode,
       conversation?.codeEnvironmentMode,
       conversation?.codeWorkspaces,
+      /** Parameters the composer itself renders must be listed here: a change
+       *  to only one of these repaints the memo'd form, while a stale entry
+       *  leaves the control showing (and re-sending) the previous value. */
+      conversation?.reasoning_effort,
       hasMessages,
     ],
   );
