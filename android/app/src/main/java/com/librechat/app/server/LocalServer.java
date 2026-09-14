@@ -274,6 +274,34 @@ public class LocalServer extends NanoHTTPD {
         return trimmed;
     }
 
+    /**
+     * Returns a JSON string value, or null when the key is absent, JSON null,
+     * or not a string. Android's JSONObject.getString()/optString() stringify
+     * JSON null to the literal "null", which made every reasoning chunk - they
+     * carry `content: null` next to `reasoning_content` - append "null" to the
+     * answer.
+     */
+    private static String jsonString(JSONObject obj, String key) {
+        if (obj == null || !obj.has(key) || obj.isNull(key)) {
+            return null;
+        }
+        Object value = obj.opt(key);
+        return value instanceof String ? (String) value : null;
+    }
+
+    /**
+     * Reasoning models stream their thinking separately from the answer. The
+     * client renders the legacy `:::thinking ... :::` text form as the
+     * collapsible chain-of-thought box, so the two are merged until the answer
+     * begins.
+     */
+    private static String composeStreamedText(StringBuilder reasoning, StringBuilder answer) {
+        if (reasoning == null || reasoning.length() == 0) {
+            return answer.toString();
+        }
+        return ":::thinking\n" + reasoning + "\n:::\n" + answer;
+    }
+
     private final ConcurrentHashMap<String, ActiveGeneration> activeGenerations = new ConcurrentHashMap<>();
 
     public LocalServer(Context context, int port) {
@@ -925,6 +953,7 @@ public class LocalServer extends NanoHTTPD {
 
             new Thread(() -> {
                 StringBuilder fullResponse = new StringBuilder();
+                StringBuilder reasoningResponse = new StringBuilder();
                 try {
                     // 1. Emit CREATED event
                     JSONObject createdData = new JSONObject();
@@ -1097,36 +1126,60 @@ public class LocalServer extends NanoHTTPD {
                                         try {
                                             JSONObject deltaObj = new JSONObject(dataStr);
                                             String chunkText = null;
+                                            String chunkReasoning = null;
 
                                             // 1. OpenAI Chat Completions format
                                             JSONArray choices = deltaObj.optJSONArray("choices");
                                             if (choices != null && choices.length() > 0) {
                                                 JSONObject delta = choices.getJSONObject(0).optJSONObject("delta");
-                                                if (delta != null && delta.has("content")) {
-                                                    chunkText = delta.getString("content");
+                                                if (delta != null) {
+                                                    chunkText = jsonString(delta, "content");
+                                                    chunkReasoning = jsonString(delta, "reasoning_content");
+                                                    if (chunkReasoning == null) {
+                                                        chunkReasoning = jsonString(delta, "reasoning");
+                                                    }
                                                 }
                                             }
 
+                                            String streamType = deltaObj.optString("type", "");
+
                                             // 2. OpenAI Responses API format (response.output_text.delta)
-                                            if (chunkText == null && "response.output_text.delta".equals(deltaObj.optString("type"))) {
-                                                chunkText = deltaObj.optString("delta", "");
+                                            if (chunkText == null && "response.output_text.delta".equals(streamType)) {
+                                                chunkText = jsonString(deltaObj, "delta");
+                                            }
+                                            if (chunkReasoning == null
+                                                    && ("response.reasoning_summary_text.delta".equals(streamType)
+                                                        || "response.reasoning_text.delta".equals(streamType))) {
+                                                chunkReasoning = jsonString(deltaObj, "delta");
                                             }
 
                                             // 3. Anthropic Messages API format (content_block_delta)
-                                            if (chunkText == null && "content_block_delta".equals(deltaObj.optString("type"))) {
+                                            if ("content_block_delta".equals(streamType)) {
                                                 JSONObject delta = deltaObj.optJSONObject("delta");
-                                                if (delta != null && delta.has("text")) {
-                                                    chunkText = delta.getString("text");
+                                                if (delta != null) {
+                                                    if (chunkText == null) {
+                                                        chunkText = jsonString(delta, "text");
+                                                    }
+                                                    if (chunkReasoning == null) {
+                                                        chunkReasoning = jsonString(delta, "thinking");
+                                                    }
                                                 }
                                             }
 
-                                            if (chunkText != null && !chunkText.isEmpty()) {
+                                            boolean hasText = chunkText != null && !chunkText.isEmpty();
+                                            boolean hasReasoning = chunkReasoning != null && !chunkReasoning.isEmpty();
+                                            if (hasReasoning) {
+                                                reasoningResponse.append(chunkReasoning);
+                                            }
+                                            if (hasText) {
                                                 fullResponse.append(chunkText);
+                                            }
 
+                                            if (hasText || hasReasoning) {
                                                 JSONObject sseData = new JSONObject();
                                                 sseData.put("message", true);
                                                 sseData.put("initial", false);
-                                                sseData.put("text", fullResponse.toString());
+                                                sseData.put("text", composeStreamedText(reasoningResponse, fullResponse));
                                                 sseData.put("messageId", gen.responseMessageId);
                                                 sseData.put("parentMessageId", gen.userMessageId);
                                                 sseData.put("conversationId", gen.conversationId);
@@ -1142,9 +1195,10 @@ public class LocalServer extends NanoHTTPD {
                         }
                     }
 
-                    // Save assistant message to SQLite
-                    if (fullResponse.length() > 0) {
-                        dbHelper.saveMessage(gen.responseMessageId, gen.conversationId, gen.userMessageId, gen.model, fullResponse.toString(), false, false);
+                    // Save assistant message to SQLite (reasoning stays in the
+                    // client's :::thinking wrapper so it survives a reload)
+                    if (fullResponse.length() > 0 || reasoningResponse.length() > 0) {
+                        dbHelper.saveMessage(gen.responseMessageId, gen.conversationId, gen.userMessageId, gen.model, composeStreamedText(reasoningResponse, fullResponse), false, false);
                     }
 
                     // Emit FINAL event
@@ -1173,7 +1227,7 @@ public class LocalServer extends NanoHTTPD {
                     respMsg.put("messageId", gen.responseMessageId);
                     respMsg.put("parentMessageId", gen.userMessageId);
                     respMsg.put("conversationId", gen.conversationId);
-                    respMsg.put("text", fullResponse.toString());
+                    respMsg.put("text", composeStreamedText(reasoningResponse, fullResponse));
                     respMsg.put("sender", gen.model);
                     respMsg.put("isCreatedByUser", false);
                     if (gen.aborted) {
@@ -1335,6 +1389,7 @@ public class LocalServer extends NanoHTTPD {
 
             new Thread(() -> {
                 StringBuilder fullResponse = new StringBuilder();
+                StringBuilder reasoningResponse = new StringBuilder();
                 try (okhttp3.Response okResp = httpClient.newCall(reqBuilder.build()).execute()) {
                     if (!okResp.isSuccessful() || okResp.body() == null) {
                         String errMsg = "Error from " + endpoint + ": " + okResp.code() + " " + okResp.message();
@@ -1377,34 +1432,58 @@ public class LocalServer extends NanoHTTPD {
                                 try {
                                     JSONObject deltaObj = new JSONObject(dataStr);
                                     String chunkText = null;
+                                    String chunkReasoning = null;
 
                                     // 1. OpenAI Chat Completions format
                                     JSONArray choices = deltaObj.optJSONArray("choices");
                                     if (choices != null && choices.length() > 0) {
                                         JSONObject delta = choices.getJSONObject(0).optJSONObject("delta");
-                                        if (delta != null && delta.has("content")) {
-                                            chunkText = delta.getString("content");
+                                        if (delta != null) {
+                                            chunkText = jsonString(delta, "content");
+                                            chunkReasoning = jsonString(delta, "reasoning_content");
+                                            if (chunkReasoning == null) {
+                                                chunkReasoning = jsonString(delta, "reasoning");
+                                            }
                                         }
                                     }
 
+                                    String streamType = deltaObj.optString("type", "");
+
                                     // 2. OpenAI Responses API format (response.output_text.delta)
-                                    if (chunkText == null && "response.output_text.delta".equals(deltaObj.optString("type"))) {
-                                        chunkText = deltaObj.optString("delta", "");
+                                    if (chunkText == null && "response.output_text.delta".equals(streamType)) {
+                                        chunkText = jsonString(deltaObj, "delta");
+                                    }
+                                    if (chunkReasoning == null
+                                            && ("response.reasoning_summary_text.delta".equals(streamType)
+                                                || "response.reasoning_text.delta".equals(streamType))) {
+                                        chunkReasoning = jsonString(deltaObj, "delta");
                                     }
 
                                     // 3. Anthropic Messages API format (content_block_delta)
-                                    if (chunkText == null && "content_block_delta".equals(deltaObj.optString("type"))) {
+                                    if ("content_block_delta".equals(streamType)) {
                                         JSONObject delta = deltaObj.optJSONObject("delta");
-                                        if (delta != null && delta.has("text")) {
-                                            chunkText = delta.getString("text");
+                                        if (delta != null) {
+                                            if (chunkText == null) {
+                                                chunkText = jsonString(delta, "text");
+                                            }
+                                            if (chunkReasoning == null) {
+                                                chunkReasoning = jsonString(delta, "thinking");
+                                            }
                                         }
                                     }
 
-                                    if (chunkText != null && !chunkText.isEmpty()) {
+                                    boolean hasText = chunkText != null && !chunkText.isEmpty();
+                                    boolean hasReasoning = chunkReasoning != null && !chunkReasoning.isEmpty();
+                                    if (hasReasoning) {
+                                        reasoningResponse.append(chunkReasoning);
+                                    }
+                                    if (hasText) {
                                         fullResponse.append(chunkText);
+                                    }
 
+                                    if (hasText || hasReasoning) {
                                         JSONObject sseData = new JSONObject();
-                                        sseData.put("text", fullResponse.toString());
+                                        sseData.put("text", composeStreamedText(reasoningResponse, fullResponse));
                                         sseData.put("messageId", messageId);
                                         sseData.put("conversationId", conversationId);
                                         sseData.put("sender", model);
@@ -1419,7 +1498,7 @@ public class LocalServer extends NanoHTTPD {
                     }
 
                     // Save assistant message to local database
-                    dbHelper.saveMessage(messageId, conversationId, parentMessageId, model, fullResponse.toString(), false, false);
+                    dbHelper.saveMessage(messageId, conversationId, parentMessageId, model, composeStreamedText(reasoningResponse, fullResponse), false, false);
 
                     out.write("event: message\ndata: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
                     out.flush();
