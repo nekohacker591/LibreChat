@@ -119,7 +119,7 @@ Download the ready-to-run release files from [**GitHub Releases v1.0.5**](https:
 
 | Artifact | File Name | Size | Target Platform | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Android APK** | [**`LibreChat-v1.0.5-release.apk`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.5/LibreChat-v1.0.5-release.apk) | ~12.7 MB | Android 8.0+ | Standalone APK with on-device HTTP server, SQLite, OpenCode Go & Zen, and DevPass integration. |
+| **Android APK** | [**`LibreChat-v1.0.5-release.apk`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.5/LibreChat-v1.0.5-release.apk) | ~12.6 MB | Android 8.0+ | Standalone APK with on-device HTTP server, SQLite, OpenCode Go & Zen, and DevPass integration. |
 | **Desktop Installer** | [**`LibreChat-Setup-1.0.5.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.5/LibreChat-Setup-1.0.5.exe) | ~79.0 MB | Windows 10 / 11 (x64) | Full desktop installer with embedded MongoDB and background auto-updater. |
 | **Desktop Portable** | [**`LibreChat-1.0.5.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.5/LibreChat-1.0.5.exe) | ~78.8 MB | Windows 10 / 11 (x64) | Standalone portable executable. Requires no installation. |
 | **Update Manifest** | [`latest.yml`](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.5/latest.yml) | 346 B | Auto-Updater | Differential update hash and release manifest. |
