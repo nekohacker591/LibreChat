@@ -5,6 +5,7 @@ import android.content.res.AssetManager;
 import android.util.Log;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
@@ -105,6 +106,7 @@ public class LocalServer extends NanoHTTPD {
         final String endpoint;
         final String prompt;
         final String apiKey;
+        final String reasoningEffort;
         final long createdAt;
         volatile boolean aborted = false;
         volatile Call activeCall = null;
@@ -112,7 +114,8 @@ public class LocalServer extends NanoHTTPD {
 
         public ActiveGeneration(String streamId, String conversationId, String userMessageId,
                                 String responseMessageId, String parentMessageId,
-                                String model, String endpoint, String prompt, String apiKey, long createdAt) {
+                                String model, String endpoint, String prompt, String apiKey,
+                                String reasoningEffort, long createdAt) {
             this.streamId = streamId;
             this.conversationId = conversationId;
             this.userMessageId = userMessageId;
@@ -122,7 +125,29 @@ public class LocalServer extends NanoHTTPD {
             this.endpoint = endpoint;
             this.prompt = prompt;
             this.apiKey = apiKey;
+            this.reasoningEffort = reasoningEffort;
             this.createdAt = createdAt;
+        }
+    }
+
+    /**
+     * Forwards the composer's reasoning level to the gateway. Anthropic Messages
+     * and OpenAI-compatible chat completions accept the shared `reasoning_effort`
+     * field; the Responses API takes `reasoning: { effort }`, matching the
+     * desktop server.
+     */
+    private static void applyReasoningEffort(JSONObject payload, String reasoningEffort,
+                                             boolean isResponsesModel) throws JSONException {
+        if (reasoningEffort == null || reasoningEffort.isEmpty()
+                || "unset".equalsIgnoreCase(reasoningEffort)) {
+            return;
+        }
+        if (isResponsesModel) {
+            JSONObject reasoning = new JSONObject();
+            reasoning.put("effort", reasoningEffort);
+            payload.put("reasoning", reasoning);
+        } else {
+            payload.put("reasoning_effort", reasoningEffort);
         }
     }
 
@@ -698,9 +723,11 @@ public class LocalServer extends NanoHTTPD {
             dbHelper.saveMessage(userMessageId, conversationId, parentMessageId, "User", prompt, true, false);
 
             String apiKey = reqJson.optString("apiKey", "");
+            String reasoningEffort = reqJson.optString("reasoning_effort", "");
 
             ActiveGeneration gen = new ActiveGeneration(streamId, conversationId, userMessageId,
-                    responseMessageId, parentMessageId, model, endpoint, prompt, apiKey, now);
+                    responseMessageId, parentMessageId, model, endpoint, prompt, apiKey,
+                    reasoningEffort, now);
             activeGenerations.put(streamId, gen);
 
             JSONObject startResp = new JSONObject();
@@ -853,6 +880,8 @@ public class LocalServer extends NanoHTTPD {
                     } else {
                         requestPayload.put("messages", messages);
                     }
+
+                    applyReasoningEffort(requestPayload, gen.reasoningEffort, isResponsesModel);
 
                     Request.Builder reqBuilder = new Request.Builder()
                             .url(completionsUrl)
@@ -1139,6 +1168,8 @@ public class LocalServer extends NanoHTTPD {
             } else {
                 requestPayload.put("messages", messages);
             }
+
+            applyReasoningEffort(requestPayload, reqJson.optString("reasoning_effort", ""), isResponsesModel);
 
             Request.Builder reqBuilder = new Request.Builder()
                     .url(completionsUrl)

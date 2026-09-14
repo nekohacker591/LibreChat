@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/nekohacker591/LibreChat/releases/latest">
-    <img src="https://img.shields.io/github/v/release/nekohacker591/LibreChat?color=blue&label=Release%20v1.0.4" alt="Latest Release">
+    <img src="https://img.shields.io/github/v/release/nekohacker591/LibreChat?color=blue&label=Release%20v1.0.5" alt="Latest Release">
   </a>
   <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20Android-green" alt="Platforms">
   <img src="https://img.shields.io/badge/Backend-Embedded%20MongoDB%20%7C%20On--Device%20SQLite-purple" alt="Databases">
@@ -115,21 +115,21 @@ For users who want access to every tool and modality that LLM Gateway offers:
 
 ## 📥 Download Pre-Compiled Binaries
 
-Download the ready-to-run release files from [**GitHub Releases v1.0.4**](https://github.com/nekohacker591/LibreChat/releases/tag/v1.0.4):
+Download the ready-to-run release files from [**GitHub Releases v1.0.5**](https://github.com/nekohacker591/LibreChat/releases/tag/v1.0.5):
 
 | Artifact | File Name | Size | Target Platform | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Android APK** | [**`LibreChat-v1.0.4-release.apk`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.4/LibreChat-v1.0.4-release.apk) | ~12.6 MB | Android 8.0+ | Standalone APK with on-device HTTP server, SQLite, OpenCode Go & Zen, and DevPass integration. |
-| **Desktop Installer** | [**`LibreChat-Setup-1.0.4.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.4/LibreChat-Setup-1.0.4.exe) | ~79.0 MB | Windows 10 / 11 (x64) | Full desktop installer with embedded MongoDB and background auto-updater. |
-| **Desktop Portable** | [**`LibreChat-1.0.4.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.4/LibreChat-1.0.4.exe) | ~78.8 MB | Windows 10 / 11 (x64) | Standalone portable executable. Requires no installation. |
-| **Update Manifest** | [`latest.yml`](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.4/latest.yml) | 346 B | Auto-Updater | Differential update hash and release manifest. |
+| **Android APK** | [**`LibreChat-v1.0.5-release.apk`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.5/LibreChat-v1.0.5-release.apk) | ~12.7 MB | Android 8.0+ | Standalone APK with on-device HTTP server, SQLite, OpenCode Go & Zen, and DevPass integration. |
+| **Desktop Installer** | [**`LibreChat-Setup-1.0.5.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.5/LibreChat-Setup-1.0.5.exe) | ~79.0 MB | Windows 10 / 11 (x64) | Full desktop installer with embedded MongoDB and background auto-updater. |
+| **Desktop Portable** | [**`LibreChat-1.0.5.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.5/LibreChat-1.0.5.exe) | ~78.8 MB | Windows 10 / 11 (x64) | Standalone portable executable. Requires no installation. |
+| **Update Manifest** | [`latest.yml`](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.5/latest.yml) | 346 B | Auto-Updater | Differential update hash and release manifest. |
 
 ---
 
 ## 🚀 Quick Start Guide
 
 ### Android
-1. **Download & Install**: Grab `LibreChat-v1.0.4-release.apk` and install it on your device (tap **Install anyway** if prompted by Play Protect).
+1. **Download & Install**: Grab `LibreChat-v1.0.5-release.apk` and install it on your device (tap **Install anyway** if prompted by Play Protect).
 2. **Launch & Choose Mode**:
    - **On-Device Server (Default)**: Runs 100% on the phone without any desktop connection required.
    - **Connect to PC Server**: Connect over your local Wi-Fi to LibreChat Desktop running on your PC.
@@ -139,7 +139,7 @@ Download the ready-to-run release files from [**GitHub Releases v1.0.4**](https:
    - Pick any model from the **DevPass** or **LLM Gateway** dropdown and start chatting!
 
 ### Windows Desktop
-1. Run `LibreChat-Setup-1.0.4.exe` (or launch the portable `LibreChat-1.0.4.exe`).
+1. Run `LibreChat-Setup-1.0.5.exe` (or launch the portable `LibreChat-1.0.5.exe`).
 2. An animated splash screen will display while the embedded database and services initialize.
 3. Once the chat window opens (automatically signed in as Local User), click **Settings** (⚙️) -> **Provider Keys** -> enter your API token.
 4. Select your preferred model and start chatting immediately!

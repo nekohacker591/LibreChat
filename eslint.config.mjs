@@ -46,6 +46,7 @@ export default [
       'client/dist/**/*',
       'client/public/**/*',
       'client/coverage/**/*',
+      'android/app/src/main/assets/www/**/*',
       'e2e/playwright-report/**/*',
       'packages/api/types/**/*',
       'packages/api/dist/**/*',
