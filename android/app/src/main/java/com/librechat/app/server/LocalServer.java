@@ -151,6 +151,59 @@ public class LocalServer extends NanoHTTPD {
         }
     }
 
+    /** Human-readable key state for the legacy summary response. */
+    private Object describeKey(String endpoint) {
+        return dbHelper.getSetting("key_" + endpoint, "").isEmpty() ? false : "valid";
+    }
+
+    /**
+     * Resolves the outbound API key: the value on the request first, then the
+     * stored per-endpoint user key (falling back to DevPass and LLM Gateway,
+     * matching the settings screen the user saved from).
+     */
+    private String resolveApiToken(String endpoint, String requestToken) {
+        String token = requestToken != null ? requestToken : "";
+        if (token.isEmpty()) {
+            token = dbHelper.getSetting("key_" + endpoint, "");
+        }
+        if (token.isEmpty()) {
+            token = dbHelper.getSetting("key_DevPass", "");
+        }
+        if (token.isEmpty()) {
+            token = dbHelper.getSetting("key_LLM Gateway", "");
+        }
+        return extractApiKey(token);
+    }
+
+    /**
+     * The Set Key dialog stores custom-endpoint keys as the JSON object it
+     * submits (`{"apiKey":"...","baseURL":"..."}`), so callers need the inner
+     * apiKey rather than the serialized wrapper. Plain string keys (and
+     * Bedrock credential objects) pass through unchanged.
+     */
+    private static String extractApiKey(String stored) {
+        if (stored == null || stored.isEmpty()) {
+            return "";
+        }
+        String trimmed = stored.trim();
+        if (trimmed.startsWith("{")) {
+            try {
+                JSONObject obj = new JSONObject(trimmed);
+                String apiKey = obj.optString("apiKey", "");
+                if (!apiKey.isEmpty()) {
+                    return apiKey;
+                }
+                String accessKeyId = obj.optString("accessKeyId", "");
+                if (!accessKeyId.isEmpty()) {
+                    return trimmed;
+                }
+            } catch (JSONException ignored) {
+                /* not the dialog's JSON shape; fall through to the raw value */
+            }
+        }
+        return trimmed;
+    }
+
     private final ConcurrentHashMap<String, ActiveGeneration> activeGenerations = new ConcurrentHashMap<>();
 
     public LocalServer(Context context, int port) {
@@ -660,26 +713,65 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", msgs.toString());
         }
 
-        // 19. Keys
+        // 19. Keys (user-provided provider keys)
         if (uri.startsWith("/api/keys")) {
-            if (Method.POST.equals(method) && postData != null) {
+            Map<String, String> parms = session.getParms();
+            if (Method.PUT.equals(method) || Method.POST.equals(method)) {
                 try {
-                    JSONObject keyObj = new JSONObject(postData);
-                    String endpoint = keyObj.optString("endpoint", "LLM Gateway");
-                    String key = keyObj.optString("apiKey", "");
-                    if (keyObj.has("key")) {
-                        key = keyObj.optString("key", "");
+                    JSONObject keyObj = new JSONObject(postData != null ? postData : "{}");
+                    String name = keyObj.optString("name", keyObj.optString("endpoint", ""));
+                    String value = keyObj.has("value")
+                            ? keyObj.optString("value", "")
+                            : keyObj.optString("apiKey", keyObj.optString("key", ""));
+                    String expiresAt = keyObj.optString("expiresAt", "");
+                    if (name.isEmpty()) {
+                        return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+                                "{\"error\":\"name is required\"}");
                     }
-                    dbHelper.setSetting("key_" + endpoint, key);
-                    return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"message\":\"Key saved\"}");
+                    dbHelper.setSetting("key_" + name, value);
+                    if (expiresAt.isEmpty()) {
+                        dbHelper.deleteSetting("key_expiry_" + name);
+                    } else {
+                        dbHelper.setSetting("key_expiry_" + name, expiresAt);
+                    }
+                    return newFixedLengthResponse(Response.Status.CREATED, "application/json", "{}");
                 } catch (Exception e) {
                     Log.e(TAG, "Error saving key", e);
+                    return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+                            "{\"error\":\"Invalid request body\"}");
                 }
             } else if (Method.GET.equals(method)) {
                 JSONObject keys = new JSONObject();
-                keys.put("LLM Gateway", dbHelper.getSetting("key_LLM Gateway", "").isEmpty() ? false : "valid");
-                keys.put("DevPass", dbHelper.getSetting("key_DevPass", "").isEmpty() ? false : "valid");
+                String name = parms != null ? parms.get("name") : null;
+                if (name != null && !name.isEmpty()) {
+                    /** The client's Set Key dialog reads `expiresAt` for this one
+                     *  name to label the key and enable revoke. */
+                    if (dbHelper.getSetting("key_" + name, "").isEmpty()) {
+                        keys.put("expiresAt", JSONObject.NULL);
+                    } else {
+                        String expiry = dbHelper.getSetting("key_expiry_" + name, "");
+                        keys.put("expiresAt", expiry.isEmpty() ? "never" : expiry);
+                    }
+                } else {
+                    keys.put("LLM Gateway", describeKey("LLM Gateway"));
+                    keys.put("DevPass", describeKey("DevPass"));
+                    keys.put("OpenCode Go", describeKey("OpenCode Go"));
+                    keys.put("OpenCode Zen", describeKey("OpenCode Zen"));
+                }
                 return newFixedLengthResponse(Response.Status.OK, "application/json", keys.toString());
+            } else if (Method.DELETE.equals(method)) {
+                String all = parms != null ? parms.get("all") : null;
+                if ("true".equals(all)) {
+                    dbHelper.deleteSettingsByPrefix("key_");
+                } else if (uri.length() > "/api/keys/".length()) {
+                    String name = uri.substring("/api/keys/".length());
+                    try {
+                        name = URLDecoder.decode(name, StandardCharsets.UTF_8.name());
+                    } catch (Exception ignored) {}
+                    dbHelper.deleteSetting("key_" + name);
+                    dbHelper.deleteSetting("key_expiry_" + name);
+                }
+                return newFixedLengthResponse(Response.Status.NO_CONTENT, "application/json", "");
             }
         }
 
@@ -785,16 +877,7 @@ public class LocalServer extends NanoHTTPD {
                     out.flush();
 
                     // 2. Determine API Token
-                    String token = gen.apiKey;
-                    if (token == null || token.isEmpty()) {
-                        token = dbHelper.getSetting("key_" + gen.endpoint, "");
-                    }
-                    if (token.isEmpty()) {
-                        token = dbHelper.getSetting("key_DevPass", "");
-                    }
-                    if (token.isEmpty()) {
-                        token = dbHelper.getSetting("key_LLM Gateway", "");
-                    }
+                    String token = resolveApiToken(gen.endpoint, gen.apiKey);
 
                     // 3. Build outbound OpenAI request
                     JSONObject outboundPayload = new JSONObject();
@@ -1092,16 +1175,7 @@ public class LocalServer extends NanoHTTPD {
             dbHelper.saveMessage(UUID.randomUUID().toString(), conversationId, parentMessageId, "User", prompt, true, false);
 
             // Determine API Token
-            String token = reqJson.optString("apiKey", "");
-            if (token.isEmpty()) {
-                token = dbHelper.getSetting("key_" + endpoint, "");
-            }
-            if (token.isEmpty()) {
-                token = dbHelper.getSetting("key_DevPass", "");
-            }
-            if (token.isEmpty()) {
-                token = dbHelper.getSetting("key_LLM Gateway", "");
-            }
+            String token = resolveApiToken(endpoint, reqJson.optString("apiKey", ""));
 
             // Prepare outbound OpenAI-compatible Chat Completion Payload
             JSONObject outboundPayload = new JSONObject();

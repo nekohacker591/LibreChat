@@ -216,4 +216,14 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
         }
         return defaultValue;
     }
+
+    public synchronized void deleteSetting(String key) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.delete(TABLE_SETTINGS, "key_name = ?", new String[]{key});
+    }
+
+    public synchronized void deleteSettingsByPrefix(String prefix) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.delete(TABLE_SETTINGS, "key_name LIKE ?", new String[]{prefix + "%"});
+    }
 }
