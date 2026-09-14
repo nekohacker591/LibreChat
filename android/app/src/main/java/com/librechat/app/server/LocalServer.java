@@ -157,6 +157,76 @@ public class LocalServer extends NanoHTTPD {
     }
 
     /**
+     * Reads the body of a mutating request.
+     *
+     * NanoHTTPD only exposes a raw body for POST requests through the
+     * `postData` file entry: PUT bodies are written to a temporary file under
+     * `content`, and PATCH bodies are consumed and discarded by parseBody
+     * entirely. Reads that went through `postData` alone therefore saw `null`
+     * for both PUT and PATCH - which is why Set Key (a PUT) silently stored
+     * nothing while POST endpoints kept working.
+     */
+    private String readRequestBody(IHTTPSession session, Method method) throws Exception {
+        if (Method.PATCH.equals(method)) {
+            /** The body is still on the stream: parseBody would throw it away. */
+            return readBodyFromStream(session);
+        }
+        if (!Method.POST.equals(method) && !Method.PUT.equals(method)) {
+            return null;
+        }
+        Map<String, String> files = new HashMap<>();
+        session.parseBody(files);
+        String postData = files.get("postData");
+        if (postData == null && Method.PUT.equals(method)) {
+            String contentPath = files.get("content");
+            if (contentPath != null) {
+                postData = readBodyFromFile(contentPath);
+            }
+        }
+        return postData;
+    }
+
+    private static String readBodyFromFile(String path) {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(path)) {
+            byte[] data = new byte[(int) new java.io.File(path).length()];
+            int read = in.read(data);
+            return read > 0 ? new String(data, 0, read, StandardCharsets.UTF_8) : "";
+        } catch (Exception e) {
+            Log.e(TAG, "Error reading request body file", e);
+            return null;
+        }
+    }
+
+    private static String readBodyFromStream(IHTTPSession session) {
+        String lengthHeader = session.getHeaders().get("content-length");
+        int length;
+        try {
+            length = lengthHeader != null ? Integer.parseInt(lengthHeader.trim()) : 0;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        if (length <= 0) {
+            return null;
+        }
+        byte[] data = new byte[length];
+        int offset = 0;
+        try {
+            InputStream in = session.getInputStream();
+            while (offset < length) {
+                int read = in.read(data, offset, length - offset);
+                if (read < 0) {
+                    break;
+                }
+                offset += read;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error reading request body stream", e);
+            return null;
+        }
+        return new String(data, 0, offset, StandardCharsets.UTF_8);
+    }
+
+    /**
      * Resolves the outbound API key: the value on the request first, then the
      * stored per-endpoint user key (falling back to DevPass and LLM Gateway,
      * matching the settings screen the user saved from).
@@ -255,11 +325,7 @@ public class LocalServer extends NanoHTTPD {
     }
 
     private Response handleApi(IHTTPSession session, String uri, Method method) throws Exception {
-        Map<String, String> body = new HashMap<>();
-        if (Method.POST.equals(method) || Method.PUT.equals(method) || Method.PATCH.equals(method)) {
-            session.parseBody(body);
-        }
-        String postData = body.get("postData");
+        String postData = readRequestBody(session, method);
 
         // 1. Config
         if (uri.equals("/api/config")) {
