@@ -669,11 +669,99 @@ public class LocalServer extends NanoHTTPD {
         return content;
     }
 
-    /** Best-effort context window for the tracker when the gateway is silent. */
+    /**
+     * Context window for a model, mirroring the desktop catalog in
+     * `packages/api/src/utils/tokens.ts`. Everything used to answer 131072,
+     * which made a 1M-token model look like a small one in the tracker and
+     * prune history far too early.
+     */
     private static int estimateContextWindow(String model) {
         String m = model != null ? model.toLowerCase(java.util.Locale.ROOT) : "";
+        if (m.isEmpty()) {
+            return 131072;
+        }
         if (m.contains("gemini")) {
             return 1048576;
+        }
+        if (m.startsWith("claude")) {
+            return 200000;
+        }
+        if (m.startsWith("gpt-6") || m.startsWith("gpt-5") || m.startsWith("chat-latest")
+                || m.startsWith("gpt-oss")) {
+            return 1050000;
+        }
+        if (m.startsWith("deepseek-v4")) {
+            return 1048576;
+        }
+        if (m.startsWith("deepseek")) {
+            return 163840;
+        }
+        if (m.startsWith("kimi") || m.startsWith("moonshot")) {
+            return 1048576;
+        }
+        if (m.startsWith("glm-5.2") || m.startsWith("glm-5.3") || m.startsWith("glm-5.4")) {
+            return 1048576;
+        }
+        if (m.startsWith("glm-4.6") || m.startsWith("glm-4.7") || m.startsWith("glm-5")) {
+            return 204800;
+        }
+        if (m.startsWith("glm")) {
+            return 131000;
+        }
+        if (m.startsWith("minimax-m3")) {
+            return 1048576;
+        }
+        if (m.startsWith("minimax")) {
+            return 204800;
+        }
+        if (m.startsWith("qwen") || m.startsWith("qwq")) {
+            return 262144;
+        }
+        if (m.startsWith("grok-4.5") || m.startsWith("grok-4.6") || m.startsWith("grok-4-5")
+                || m.startsWith("grok-4-6") || m.startsWith("grok-4-fast")) {
+            return 500000;
+        }
+        if (m.startsWith("grok-4")) {
+            return 256000;
+        }
+        if (m.startsWith("grok")) {
+            return 131072;
+        }
+        if (m.startsWith("mimo-v2.5-free")) {
+            return 200000;
+        }
+        if (m.startsWith("mimo-v2.5") || m.startsWith("mimo-v2-pro")) {
+            return 1048576;
+        }
+        if (m.startsWith("mimo-v2-omni")) {
+            return 262144;
+        }
+        if (m.startsWith("mimo")) {
+            return 262144;
+        }
+        if (m.startsWith("longcat")) {
+            return 1000000;
+        }
+        if (m.startsWith("hy4")) {
+            return 1024000;
+        }
+        if (m.startsWith("hy3")) {
+            return 256000;
+        }
+        if (m.startsWith("omen")) {
+            return 500000;
+        }
+        if (m.startsWith("big-pickle")) {
+            return 200000;
+        }
+        if (m.startsWith("ling-3")) {
+            return 262144;
+        }
+        if (m.startsWith("nemotron-3-ultra")) {
+            return 1000000;
+        }
+        if (m.startsWith("nemotron")) {
+            return 262144;
         }
         return 131072;
     }

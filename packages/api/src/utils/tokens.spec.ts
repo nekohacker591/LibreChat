@@ -212,3 +212,39 @@ describe('vendor-prefixed model ids', () => {
     expect(getModelMaxTokens('us.anthropic.claude-3-5-sonnet-20241022-v2:0')).toBe(200000);
   });
 });
+
+/**
+ * These models power the OpenCode Go/Zen endpoints. Before they were listed
+ * they fell through to the 32K system default, so a 1M-token model reported a
+ * ~28.9K budget in the context tracker.
+ */
+describe('OpenCode Go/Zen catalog coverage', () => {
+  const contextWindows: Array<[string, number]> = [
+    ['mimo-v2.5-pro', 1048576],
+    ['mimo-v2.5', 1000000],
+    ['mimo-v2-pro', 1048576],
+    ['mimo-v2-omni', 262144],
+    ['mimo-v2.5-free', 200000],
+    ['longcat-2.0', 1000000],
+    ['hy3', 256000],
+    ['hy3-preview', 256000],
+    ['hy4-preview', 1024000],
+    ['omen-alpha', 500000],
+    ['big-pickle', 200000],
+    ['ling-3.0-flash-fin-free', 262144],
+    ['nemotron-3-ultra-free', 1000000],
+    ['nemotron-3.5-lightning-free', 262144],
+  ];
+
+  it.each(contextWindows)('resolves %s to %d tokens', (model, expected) => {
+    expect(getModelMaxTokens(model, EModelEndpoint.custom)).toBe(expected);
+  });
+
+  it('gives every listed model an output ceiling smaller than its window', () => {
+    for (const [model, context] of contextWindows) {
+      const output = getModelMaxOutputTokens(model, EModelEndpoint.custom);
+      expect(output).toBeGreaterThan(0);
+      expect(output).toBeLessThan(context);
+    }
+  });
+});

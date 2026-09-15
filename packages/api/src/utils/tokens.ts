@@ -448,6 +448,38 @@ const xAIModels = {
   'grok-4-6': 500000,
 };
 
+/**
+ * Context windows for the OpenCode Go/Zen catalogs the fork exposes. These
+ * models were absent from every other map, so they silently fell back to the
+ * 32K system default; `mimo-v2.5-pro` showed a 28.9K budget on a 1M-token
+ * model. Values come from the OpenCode provider entries in models.dev
+ * (`opencode-go` and `opencode`), which is the catalog OpenCode itself uses.
+ */
+const opencodeModels = {
+  'longcat-2.0': 1000000,
+  'longcat-2.0-free': 1000000,
+  'mimo-v2-pro': 1048576,
+  'mimo-v2-pro-free': 1048576,
+  'mimo-v2-omni': 262144,
+  'mimo-v2-omni-free': 262144,
+  'mimo-v2.5': 1000000,
+  'mimo-v2.5-pro': 1048576,
+  'mimo-v2.5-free': 200000,
+  'hy3': 256000,
+  'hy3-free': 256000,
+  'hy3-preview': 256000,
+  'hy3-preview-free': 256000,
+  'hy4-preview': 1024000,
+  'omen-alpha': 500000,
+  'big-pickle': 200000,
+  'ling-3.0-flash-fin': 262144,
+  'ling-3.0-flash-fin-free': 262144,
+  'nemotron-3-ultra': 1000000,
+  'nemotron-3-ultra-free': 1000000,
+  'nemotron-3.5-lightning': 262144,
+  'nemotron-3.5-lightning-free': 262144,
+};
+
 const aggregateModels = {
   // GLM models (Zhipu AI)
   glm4: 128000,
@@ -478,6 +510,7 @@ const aggregateModels = {
   ...xAIModels,
   ...googleModels,
   ...bedrockModels,
+  ...opencodeModels,
   // OpenAI last — reverse iteration checks last-spread keys first for same-length ties
   ...openAIModels,
 };
@@ -562,11 +595,38 @@ const deepseekMaxOutputs = {
   'deepseek.r1': 64000,
 };
 
+/** Output ceilings for the OpenCode Go/Zen models, from the same models.dev entries. */
+const opencodeMaxOutputs = {
+  'longcat-2.0': 131072,
+  'longcat-2.0-free': 131072,
+  'mimo-v2-pro': 128000,
+  'mimo-v2-pro-free': 64000,
+  'mimo-v2-omni': 128000,
+  'mimo-v2-omni-free': 64000,
+  'mimo-v2.5': 128000,
+  'mimo-v2.5-pro': 128000,
+  'mimo-v2.5-free': 32000,
+  'hy3': 128000,
+  'hy3-free': 64000,
+  'hy3-preview': 64000,
+  'hy3-preview-free': 64000,
+  'hy4-preview': 64000,
+  'omen-alpha': 128000,
+  'big-pickle': 32000,
+  'ling-3.0-flash-fin': 32768,
+  'ling-3.0-flash-fin-free': 32768,
+  'nemotron-3-ultra': 128000,
+  'nemotron-3-ultra-free': 128000,
+  /** models.dev reports output == context here; cap it so the budget stays positive. */
+  'nemotron-3.5-lightning': 131072,
+  'nemotron-3.5-lightning-free': 131072,
+};
+
 export const maxOutputTokensMap: Record<string, Record<string, number>> = {
   [EModelEndpoint.anthropic]: anthropicMaxOutputs,
   [EModelEndpoint.azureOpenAI]: modelMaxOutputs,
-  [EModelEndpoint.openAI]: { ...modelMaxOutputs, ...deepseekMaxOutputs },
-  [EModelEndpoint.custom]: { ...modelMaxOutputs, ...deepseekMaxOutputs },
+  [EModelEndpoint.openAI]: { ...modelMaxOutputs, ...deepseekMaxOutputs, ...opencodeMaxOutputs },
+  [EModelEndpoint.custom]: { ...modelMaxOutputs, ...deepseekMaxOutputs, ...opencodeMaxOutputs },
 };
 
 /**
