@@ -14,6 +14,7 @@ import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.text.format.Formatter;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -39,8 +40,14 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.Date;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -73,6 +80,7 @@ public class MainActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     private UpdateManager updateManager;
     private ValueCallback<Uri[]> filePathCallback;
+    private Uri pendingCameraUri;
     private CountDownTimer retryTimer;
     private final ExecutorService networkExecutor = Executors.newFixedThreadPool(8);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -86,6 +94,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        installCrashHandler();
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         updateManager = new UpdateManager(this);
 
@@ -253,8 +262,20 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> {
-                    String[] resources = request.getResources();
-                    request.grant(resources);
+                    /** Only media capture is needed in-app (voice input); grant
+                     *  nothing else to whatever page happens to be loaded. */
+                    java.util.List<String> granted = new java.util.ArrayList<>();
+                    for (String resource : request.getResources()) {
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
+                                || PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) {
+                            granted.add(resource);
+                        }
+                    }
+                    if (granted.isEmpty()) {
+                        request.deny();
+                    } else {
+                        request.grant(granted.toArray(new String[0]));
+                    }
                 });
             }
 
@@ -265,11 +286,17 @@ public class MainActivity extends AppCompatActivity {
                     MainActivity.this.filePathCallback.onReceiveValue(null);
                 }
                 MainActivity.this.filePathCallback = filePathCallback;
+                pendingCameraUri = null;
 
-                Intent intent = fileChooserParams.createIntent();
+                Intent intent = buildChooserIntent(fileChooserParams);
                 try {
                     startActivityForResult(intent, FILE_CHOOSER_REQ_CODE);
                 } catch (Exception e) {
+                    /** Fall back to the WebView's own intent before giving up. */
+                    try {
+                        startActivityForResult(fileChooserParams.createIntent(), FILE_CHOOSER_REQ_CODE);
+                        return true;
+                    } catch (Exception ignored) {}
                     MainActivity.this.filePathCallback = null;
                     Toast.makeText(MainActivity.this, "Cannot open file picker: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                     return false;
@@ -277,6 +304,71 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
         });
+    }
+
+    /**
+     * Prefers a real media experience over the document browser: the system
+     * photo picker for images on Android 13+, gallery/document providers before
+     * that, and the camera with a FileProvider target when the page requests
+     * capture. Everything else keeps the WebView's own intent.
+     */
+    private Intent buildChooserIntent(WebChromeClient.FileChooserParams fileChooserParams) {
+        boolean wantsImage = acceptsImages(fileChooserParams);
+        if (!wantsImage) {
+            return fileChooserParams.createIntent();
+        }
+        if (fileChooserParams.isCaptureEnabled()) {
+            Intent capture = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            try {
+                File dir = new File(getCacheDir(), "camera");
+                if (!dir.exists()) {
+                    dir.mkdirs();
+                }
+                File photo = new File(dir, "capture-" + System.currentTimeMillis() + ".jpg");
+                pendingCameraUri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", photo);
+                capture.putExtra(MediaStore.EXTRA_OUTPUT, pendingCameraUri);
+                capture.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                if (capture.resolveActivity(getPackageManager()) != null) {
+                    return capture;
+                }
+            } catch (Exception e) {
+                Log.w("MainActivity", "Camera capture unavailable", e);
+                pendingCameraUri = null;
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Intent picker = new Intent(MediaStore.ACTION_PICK_IMAGES);
+            picker.setType("image/*");
+            picker.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, 10);
+            if (picker.resolveActivity(getPackageManager()) != null) {
+                return picker;
+            }
+        }
+        Intent gallery = new Intent(Intent.ACTION_GET_CONTENT);
+        gallery.addCategory(Intent.CATEGORY_OPENABLE);
+        gallery.setType("image/*");
+        gallery.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        return gallery;
+    }
+
+    private static boolean acceptsImages(WebChromeClient.FileChooserParams params) {
+        String[] types = params.getAcceptTypes();
+        if (types == null || types.length == 0) {
+            return false;
+        }
+        for (String type : types) {
+            if (type == null || type.trim().isEmpty()) {
+                continue;
+            }
+            String lower = type.toLowerCase(java.util.Locale.ROOT).trim();
+            if (lower.startsWith("image/") || lower.contains("heic") || lower.contains("heif")
+                    || lower.contains(".jpg") || lower.contains(".jpeg") || lower.contains(".png")
+                    || lower.contains(".webp") || lower.contains(".gif")) {
+                return true;
+            }
+        }
+        /** A bare wildcard or an empty accept list is the generic document flow. */
+        return false;
     }
 
     private void showConnectionView(String reason) {
@@ -463,6 +555,9 @@ public class MainActivity extends AppCompatActivity {
         } else if (id == R.id.action_check_updates) {
             updateManager.checkForUpdates(true);
             return true;
+        } else if (id == R.id.action_share_logs) {
+            shareLogs();
+            return true;
         }
         return super.onOptionsItemSelected(item);
     }
@@ -473,31 +568,147 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == FILE_CHOOSER_REQ_CODE) {
             if (filePathCallback == null) return;
             Uri[] results = null;
-            if (resultCode == RESULT_OK && data != null) {
-                if (data.getData() != null) {
+            if (resultCode == RESULT_OK) {
+                if (data != null && data.getData() != null) {
                     results = new Uri[]{data.getData()};
-                } else if (data.getClipData() != null) {
+                } else if (data != null && data.getClipData() != null) {
                     int count = data.getClipData().getItemCount();
                     results = new Uri[count];
                     for (int i = 0; i < count; i++) {
                         results[i] = data.getClipData().getItemAt(i).getUri();
                     }
+                } else if (pendingCameraUri != null) {
+                    /** ACTION_IMAGE_CAPTURE returns no data URI when EXTRA_OUTPUT
+                     *  was supplied; the FileProvider target is the result. */
+                    results = new Uri[]{pendingCameraUri};
                 }
             }
             filePathCallback.onReceiveValue(results);
             filePathCallback = null;
+            pendingCameraUri = null;
         }
     }
 
     @Override
     protected void onDestroy() {
+        /** Nothing may outlive the Activity: the delayed retry/status runnables
+         *  used to resurrect a stopped server bound to a dead context, which
+         *  then wedged the next launch on the port. */
+        mainHandler.removeCallbacksAndMessages(null);
+        cancelRetryTimer();
+        if (filePathCallback != null) {
+            filePathCallback.onReceiveValue(null);
+            filePathCallback = null;
+        }
+        if (webView != null) {
+            webView.stopLoading();
+            webView.setWebChromeClient(null);
+            webView.setWebViewClient(null);
+            webView.destroy();
+            webView = null;
+        }
         if (localServer != null) {
             try {
                 localServer.stop();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
+            localServer = null;
         }
-        cancelRetryTimer();
         networkExecutor.shutdown();
         super.onDestroy();
+    }
+
+    // ------------------------------------------------------------------
+    // Diagnostics
+    // ------------------------------------------------------------------
+
+    private void installCrashHandler() {
+        final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            try {
+                writeCrashLog(thread, throwable);
+            } catch (Throwable ignored) {
+            }
+            if (previous != null) {
+                previous.uncaughtException(thread, throwable);
+            }
+        });
+    }
+
+    private void writeCrashLog(Thread thread, Throwable throwable) {
+        File dir = new File(getFilesDir(), "logs");
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        StringWriter stack = new StringWriter();
+        PrintWriter writer = new PrintWriter(stack);
+        writer.println("Time: " + new Date());
+        writer.println("Thread: " + thread.getName());
+        writer.println("Version: " + appVersion());
+        writer.println("Android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")");
+        throwable.printStackTrace(writer);
+        writer.flush();
+        File target = new File(dir, "crash-" + System.currentTimeMillis() + ".log");
+        try (FileWriter fileWriter = new FileWriter(target)) {
+            fileWriter.write(stack.toString());
+        } catch (IOException ignored) {
+        }
+        pruneLogs(dir, 8);
+    }
+
+    private void pruneLogs(File dir, int keep) {
+        File[] files = dir.listFiles();
+        if (files == null || files.length <= keep) {
+            return;
+        }
+        java.util.Arrays.sort(files, java.util.Comparator.comparingLong(File::lastModified));
+        for (int i = 0; i < files.length - keep; i++) {
+            files[i].delete();
+        }
+    }
+
+    private String appVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    private void shareLogs() {
+        File dir = new File(getFilesDir(), "logs");
+        File[] files = dir.listFiles();
+        if (files == null || files.length == 0) {
+            Toast.makeText(this, "No logs recorded yet", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        java.util.Arrays.sort(files, java.util.Comparator.comparingLong(File::lastModified));
+        StringBuilder builder = new StringBuilder();
+        builder.append("LibreChat Android logs (").append(files.length).append(" files)\n\n");
+        for (File file : files) {
+            builder.append("===== ").append(file.getName()).append(" =====\n");
+            try (java.io.FileInputStream in = new java.io.FileInputStream(file)) {
+                byte[] data = new byte[(int) file.length()];
+                int read = in.read(data);
+                builder.append(new String(data, 0, Math.max(read, 0)));
+            } catch (Exception e) {
+                builder.append("(unreadable: ").append(e.getMessage()).append(")\n");
+            }
+            builder.append("\n");
+        }
+        try {
+            File out = new File(getCacheDir(), "librechat-logs.txt");
+            try (FileWriter writer = new FileWriter(out)) {
+                writer.write(builder.toString());
+            }
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", out);
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("text/plain");
+            share.putExtra(Intent.EXTRA_STREAM, uri);
+            share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(share, "Share LibreChat logs"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not share logs: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 }

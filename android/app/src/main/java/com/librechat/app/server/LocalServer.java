@@ -10,6 +10,8 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PipedInputStream;
@@ -33,11 +35,20 @@ import okhttp3.ResponseBody;
 public class LocalServer extends NanoHTTPD {
 
     private static final String TAG = "LocalServer";
+    /** JSON bodies are small; anything larger is a mistake or an attack. */
+    private static final int MAX_REQUEST_BODY_BYTES = 25 * 1024 * 1024;
+    /** Images above this are not inlined into model requests. */
+    private static final long MAX_ATTACHMENT_BYTES = 12L * 1024 * 1024;
     private static final String X_SOURCE_HEADER = "opencode";
     private static final String USER_AGENT_OPENCODE = "opencode/1.18.30";
     private final Context context;
     private final LocalDatabaseHelper dbHelper;
     private final OkHttpClient httpClient;
+    /** Model listings are small JSON calls; time them out fast so a dead
+     *  network cannot hold fetch threads for minutes. */
+    private final OkHttpClient modelFetchClient;
+    private final java.util.concurrent.ScheduledExecutorService watchdog =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
     private final Object modelsLock = new Object();
     private volatile JSONArray cachedLlmGatewayModels = getDefaultLlmGatewayModels();
     private volatile JSONArray cachedDevPassModels = getDefaultDevPassModels();
@@ -108,14 +119,22 @@ public class LocalServer extends NanoHTTPD {
         final String apiKey;
         final String reasoningEffort;
         final long createdAt;
+        final JSONArray fileRefs;
+        final boolean webSearch;
         volatile boolean aborted = false;
         volatile Call activeCall = null;
-        volatile PipedOutputStream streamOut = null;
+        final SseSink sink = new SseSink();
+        /** True once the upstream call is running: reconnects attach to the
+         *  sink instead of starting a second (duplicate, paid) generation. */
+        volatile boolean streaming = false;
+        /** Latest cumulative text, replayed to a client that reconnects. */
+        volatile String streamedText = "";
 
         public ActiveGeneration(String streamId, String conversationId, String userMessageId,
                                 String responseMessageId, String parentMessageId,
                                 String model, String endpoint, String prompt, String apiKey,
-                                String reasoningEffort, long createdAt) {
+                                String reasoningEffort, JSONArray fileRefs, boolean webSearch,
+                                long createdAt) {
             this.streamId = streamId;
             this.conversationId = conversationId;
             this.userMessageId = userMessageId;
@@ -126,7 +145,106 @@ public class LocalServer extends NanoHTTPD {
             this.prompt = prompt;
             this.apiKey = apiKey;
             this.reasoningEffort = reasoningEffort;
+            this.fileRefs = fileRefs;
+            this.webSearch = webSearch;
             this.createdAt = createdAt;
+        }
+    }
+
+    /**
+     * Disconnect-tolerant SSE output.
+     *
+     * The old code wrote straight into a PipedOutputStream: when the WebView
+     * went away without closing the socket (backgrounding, navigation), the
+     * pipe filled, the write blocked forever, the cleanup never ran and the
+     * generation - plus its buffers - leaked. A failed write now detaches the
+     * pipe instead, and the stall watchdog closes a pipe that has not accepted
+     * a byte for 45 s so a blocked write fails fast.
+     */
+    private static final class SseSink {
+        static final long STALL_TIMEOUT_MS = 45_000L;
+        private volatile PipedOutputStream out;
+        private volatile long lastWriteAttemptAt;
+        private volatile long lastSuccessfulWriteAt = System.currentTimeMillis();
+
+        void attach(PipedOutputStream pipe) {
+            PipedOutputStream previous = out;
+            out = pipe;
+            lastWriteAttemptAt = 0;
+            lastSuccessfulWriteAt = System.currentTimeMillis();
+            if (previous != null && previous != pipe) {
+                try {
+                    previous.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        boolean isAttached() {
+            return out != null;
+        }
+
+        boolean send(String event, JSONObject payload) {
+            PipedOutputStream pipe = out;
+            if (pipe == null) {
+                return false;
+            }
+            lastWriteAttemptAt = System.currentTimeMillis();
+            try {
+                pipe.write(("event: " + event + "\ndata: " + payload.toString() + "\n\n")
+                        .getBytes(StandardCharsets.UTF_8));
+                pipe.flush();
+                lastSuccessfulWriteAt = System.currentTimeMillis();
+                return true;
+            } catch (Exception e) {
+                detach();
+                return false;
+            }
+        }
+
+        boolean sendRaw(String chunk) {
+            PipedOutputStream pipe = out;
+            if (pipe == null) {
+                return false;
+            }
+            lastWriteAttemptAt = System.currentTimeMillis();
+            try {
+                pipe.write(chunk.getBytes(StandardCharsets.UTF_8));
+                pipe.flush();
+                lastSuccessfulWriteAt = System.currentTimeMillis();
+                return true;
+            } catch (Exception e) {
+                detach();
+                return false;
+            }
+        }
+
+        void detach() {
+            PipedOutputStream pipe = out;
+            out = null;
+            if (pipe != null) {
+                try {
+                    pipe.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        /** Watchdog entry: closes a write that has been stuck past the timeout. */
+        boolean reapIfStalled(long now) {
+            PipedOutputStream pipe = out;
+            if (pipe == null || lastWriteAttemptAt == 0) {
+                return false;
+            }
+            if (now - lastSuccessfulWriteAt <= STALL_TIMEOUT_MS) {
+                return false;
+            }
+            out = null;
+            try {
+                pipe.close();
+            } catch (Exception ignored) {
+            }
+            return true;
         }
     }
 
@@ -166,7 +284,8 @@ public class LocalServer extends NanoHTTPD {
      * for both PUT and PATCH - which is why Set Key (a PUT) silently stored
      * nothing while POST endpoints kept working.
      */
-    private String readRequestBody(IHTTPSession session, Method method) throws Exception {
+    private String readRequestBody(IHTTPSession session, Method method, Map<String, String> parsedFiles)
+            throws Exception {
         if (Method.PATCH.equals(method)) {
             /** The body is still on the stream: parseBody would throw it away. */
             return readBodyFromStream(session);
@@ -174,11 +293,10 @@ public class LocalServer extends NanoHTTPD {
         if (!Method.POST.equals(method) && !Method.PUT.equals(method)) {
             return null;
         }
-        Map<String, String> files = new HashMap<>();
-        session.parseBody(files);
-        String postData = files.get("postData");
+        session.parseBody(parsedFiles);
+        String postData = parsedFiles.get("postData");
         if (postData == null && Method.PUT.equals(method)) {
-            String contentPath = files.get("content");
+            String contentPath = parsedFiles.get("content");
             if (contentPath != null) {
                 postData = readBodyFromFile(contentPath);
             }
@@ -187,10 +305,17 @@ public class LocalServer extends NanoHTTPD {
     }
 
     private static String readBodyFromFile(String path) {
-        try (java.io.FileInputStream in = new java.io.FileInputStream(path)) {
-            byte[] data = new byte[(int) new java.io.File(path).length()];
-            int read = in.read(data);
-            return read > 0 ? new String(data, 0, read, StandardCharsets.UTF_8) : "";
+        try {
+            File file = new File(path);
+            if (file.length() > MAX_REQUEST_BODY_BYTES) {
+                appendStaticLog("Rejected oversized request body (" + file.length() + " bytes)");
+                return null;
+            }
+            try (java.io.FileInputStream in = new java.io.FileInputStream(path)) {
+                byte[] data = new byte[(int) file.length()];
+                int read = in.read(data);
+                return read > 0 ? new String(data, 0, read, StandardCharsets.UTF_8) : "";
+            }
         } catch (Exception e) {
             Log.e(TAG, "Error reading request body file", e);
             return null;
@@ -206,6 +331,10 @@ public class LocalServer extends NanoHTTPD {
             return null;
         }
         if (length <= 0) {
+            return null;
+        }
+        if (length > MAX_REQUEST_BODY_BYTES) {
+            appendStaticLog("Rejected oversized PATCH body (" + length + " bytes)");
             return null;
         }
         byte[] data = new byte[length];
@@ -224,6 +353,376 @@ public class LocalServer extends NanoHTTPD {
             return null;
         }
         return new String(data, 0, offset, StandardCharsets.UTF_8);
+    }
+
+    /** Static-safe runtime log for helpers without an instance (body guards). */
+    private static void appendStaticLog(String message) {
+        Log.w(TAG, message);
+    }
+
+    // ------------------------------------------------------------------
+    // File attachments
+    // ------------------------------------------------------------------
+
+    private File getUploadsDir() {
+        File dir = new File(context.getFilesDir(), "uploads");
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        return dir;
+    }
+
+    /**
+     * Stores one multipart upload. NanoHTTPD hands multipart file parts back as
+     * temporary file paths keyed by field name, and the remaining form fields
+     * via {@code session.getParms()}; previously this route answered with an
+     * empty array so every attachment silently lost its server identity.
+     */
+    private Response handleFileUpload(IHTTPSession session, Map<String, String> parsedFiles) {
+        try {
+            Map<String, String> parms = session.getParms();
+            String tempPath = parsedFiles.get("file");
+            if (tempPath == null) {
+                for (Map.Entry<String, String> entry : parsedFiles.entrySet()) {
+                    String candidate = entry.getValue();
+                    if (!"postData".equals(entry.getKey()) && candidate != null
+                            && new File(candidate).isFile()) {
+                        tempPath = candidate;
+                        break;
+                    }
+                }
+            }
+            if (tempPath == null) {
+                return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+                        "{\"error\":\"No file part in the request\"}");
+            }
+            File source = new File(tempPath);
+            String requestedId = parms != null ? parms.get("file_id") : null;
+            String fileId = requestedId != null && !requestedId.isEmpty()
+                    ? requestedId : UUID.randomUUID().toString();
+            String mime = sniffMimeType(source);
+            String filename = parms != null && parms.get("filename") != null && !parms.get("filename").isEmpty()
+                    ? parms.get("filename")
+                    : "attachment-" + System.currentTimeMillis() + extensionFor(mime);
+
+            File target = new File(getUploadsDir(), fileId);
+            try (InputStream in = new java.io.FileInputStream(source);
+                 java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, read);
+                }
+            }
+
+            int width = parseIntSafe(parms != null ? parms.get("width") : null);
+            int height = parseIntSafe(parms != null ? parms.get("height") : null);
+            dbHelper.saveFile(fileId, filename, mime, target.length(), target.getAbsolutePath(), width, height);
+
+            JSONObject res = new JSONObject();
+            res.put("file_id", fileId);
+            res.put("temp_file_id", requestedId != null && !requestedId.isEmpty() ? requestedId : fileId);
+            res.put("filepath", "/api/files/" + fileId);
+            res.put("filename", filename);
+            res.put("type", mime);
+            res.put("bytes", target.length());
+            res.put("width", width);
+            res.put("height", height);
+            res.put("source", "local");
+            res.put("object", "file");
+            res.put("usage", 0);
+            res.put("createdAt", isoNow());
+            return newFixedLengthResponse(Response.Status.OK, "application/json", res.toString());
+        } catch (Exception e) {
+            Log.e(TAG, "File upload failed", e);
+            appendRuntimeLog("File upload failed: " + e);
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+                    "{\"error\":\"Upload failed\"}");
+        }
+    }
+
+    private Response serveUploadedFile(String fileId) {
+        try {
+            JSONObject record = dbHelper.getFileRecord(fileId);
+            if (record == null) {
+                return newFixedLengthResponse(Response.Status.NOT_FOUND, "application/json",
+                        "{\"error\":\"File not found\"}");
+            }
+            File file = new File(record.optString("path", ""));
+            if (!file.isFile()) {
+                return newFixedLengthResponse(Response.Status.NOT_FOUND, "application/json",
+                        "{\"error\":\"File missing\"}");
+            }
+            String mime = record.optString("mime", "application/octet-stream");
+            InputStream in = new java.io.FileInputStream(file);
+            Response resp = newChunkedResponse(Response.Status.OK, mime, in);
+            resp.addHeader("Cache-Control", "private, max-age=86400");
+            return resp;
+        } catch (Exception e) {
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+                    "{\"error\":\"Could not read file\"}");
+        }
+    }
+
+    /** Reads a stored file as a `data:` URL, or null when unavailable/too big. */
+    private String readFileAsDataUrl(JSONObject record) {
+        try {
+            File file = new File(record.optString("path", ""));
+            if (!file.isFile() || file.length() > MAX_ATTACHMENT_BYTES) {
+                return null;
+            }
+            byte[] data = new byte[(int) file.length()];
+            try (InputStream in = new java.io.FileInputStream(file)) {
+                int offset = 0;
+                while (offset < data.length) {
+                    int read = in.read(data, offset, data.length - offset);
+                    if (read < 0) {
+                        break;
+                    }
+                    offset += read;
+                }
+            }
+            String mime = record.optString("mime", "image/jpeg");
+            return "data:" + mime + ";base64,"
+                    + android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String sniffMimeType(File file) {
+        try (InputStream in = new java.io.FileInputStream(file)) {
+            byte[] head = new byte[16];
+            int read = in.read(head);
+            if (read >= 8 && (head[0] & 0xFF) == 0x89 && head[1] == 'P' && head[2] == 'N' && head[3] == 'G') {
+                return "image/png";
+            }
+            if (read >= 3 && (head[0] & 0xFF) == 0xFF && (head[1] & 0xFF) == 0xD8) {
+                return "image/jpeg";
+            }
+            if (read >= 6 && head[0] == 'G' && head[1] == 'I' && head[2] == 'F') {
+                return "image/gif";
+            }
+            if (read >= 12 && head[0] == 'R' && head[1] == 'I' && head[2] == 'F' && head[3] == 'F'
+                    && head[8] == 'W' && head[9] == 'E' && head[10] == 'B' && head[11] == 'P') {
+                return "image/webp";
+            }
+            if (read >= 4 && head[0] == '%' && head[1] == 'P' && head[2] == 'D' && head[3] == 'F') {
+                return "application/pdf";
+            }
+            if (read >= 12 && head[4] == 'f' && head[5] == 't' && head[6] == 'y' && head[7] == 'p') {
+                String brand = new String(head, 8, Math.min(4, Math.max(read - 8, 0)), StandardCharsets.US_ASCII);
+                if (brand.startsWith("hei") || brand.startsWith("mif") || brand.startsWith("msf")) {
+                    return "image/heic";
+                }
+                return "video/mp4";
+            }
+        } catch (Exception ignored) {
+        }
+        return "application/octet-stream";
+    }
+
+    private static String extensionFor(String mime) {
+        switch (mime) {
+            case "image/png":
+                return ".png";
+            case "image/jpeg":
+                return ".jpg";
+            case "image/gif":
+                return ".gif";
+            case "image/webp":
+                return ".webp";
+            case "image/heic":
+                return ".heic";
+            case "application/pdf":
+                return ".pdf";
+            case "video/mp4":
+                return ".mp4";
+            default:
+                return ".bin";
+        }
+    }
+
+    private static int parseIntSafe(String value) {
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static String isoNow() {
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat(
+                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US);
+        sdf.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        return sdf.format(new java.util.Date());
+    }
+
+    // ------------------------------------------------------------------
+    // Attachments & context accounting
+    // ------------------------------------------------------------------
+
+    /** Keeps only the fields the UI needs to render an attachment later. */
+    private static JSONArray sanitizeFileRefs(JSONArray raw) {
+        JSONArray refs = new JSONArray();
+        if (raw == null) {
+            return refs;
+        }
+        for (int i = 0; i < raw.length(); i++) {
+            JSONObject item = raw.optJSONObject(i);
+            if (item == null) {
+                continue;
+            }
+            String fileId = item.optString("file_id", "");
+            if (fileId.isEmpty()) {
+                continue;
+            }
+            try {
+                JSONObject ref = new JSONObject();
+                ref.put("file_id", fileId);
+                ref.put("filename", item.optString("filename", "attachment"));
+                ref.put("type", item.optString("type", "application/octet-stream"));
+                ref.put("filepath", item.optString("filepath", "/api/files/" + fileId));
+                if (item.has("width")) {
+                    ref.put("width", item.optInt("width", 0));
+                }
+                if (item.has("height")) {
+                    ref.put("height", item.optInt("height", 0));
+                }
+                refs.put(ref);
+            } catch (Exception ignored) {
+            }
+        }
+        return refs;
+    }
+
+    /** Vision parts for stored image attachments, shaped for the route. */
+    private JSONArray buildImageParts(JSONArray fileRefs, String routeKind) {
+        if (fileRefs == null || fileRefs.length() == 0) {
+            return null;
+        }
+        JSONArray parts = new JSONArray();
+        for (int i = 0; i < fileRefs.length(); i++) {
+            JSONObject ref = fileRefs.optJSONObject(i);
+            if (ref == null) {
+                continue;
+            }
+            JSONObject record = dbHelper.getFileRecord(ref.optString("file_id", ""));
+            if (record == null) {
+                continue;
+            }
+            String mime = record.optString("mime", "");
+            if (!mime.startsWith("image/")) {
+                continue;
+            }
+            String dataUrl = readFileAsDataUrl(record);
+            if (dataUrl == null) {
+                continue;
+            }
+            try {
+                if ("anthropic".equals(routeKind)) {
+                    JSONObject part = new JSONObject();
+                    part.put("type", "image");
+                    JSONObject source = new JSONObject();
+                    source.put("type", "base64");
+                    source.put("media_type", mime);
+                    source.put("data", dataUrl.substring(dataUrl.indexOf(',') + 1));
+                    part.put("source", source);
+                    parts.put(part);
+                } else if ("responses".equals(routeKind)) {
+                    JSONObject part = new JSONObject();
+                    part.put("type", "input_image");
+                    part.put("image_url", dataUrl);
+                    parts.put(part);
+                } else {
+                    JSONObject part = new JSONObject();
+                    part.put("type", "image_url");
+                    JSONObject url = new JSONObject();
+                    url.put("url", dataUrl);
+                    part.put("image_url", url);
+                    parts.put(part);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return parts.length() > 0 ? parts : null;
+    }
+
+    /** Plain text when there are no images, a content-part array otherwise. */
+    private Object composeUserContent(String prompt, JSONArray fileRefs, String routeKind)
+            throws JSONException {
+        JSONArray images = buildImageParts(fileRefs, routeKind);
+        if (images == null) {
+            return prompt;
+        }
+        JSONArray content = new JSONArray();
+        JSONObject textPart = new JSONObject();
+        textPart.put("type", "responses".equals(routeKind) ? "input_text" : "text");
+        textPart.put("text", prompt);
+        content.put(textPart);
+        for (int i = 0; i < images.length(); i++) {
+            content.put(images.get(i));
+        }
+        return content;
+    }
+
+    /** Best-effort context window for the tracker when the gateway is silent. */
+    private static int estimateContextWindow(String model) {
+        String m = model != null ? model.toLowerCase(java.util.Locale.ROOT) : "";
+        if (m.contains("gemini")) {
+            return 1048576;
+        }
+        return 131072;
+    }
+
+    /**
+     * Minimal on-device web search for the composer's web-search badge. The
+     * desktop app configures a search provider; here the top DuckDuckGo results
+     * are fetched directly (no API key) and appended as model context.
+     */
+    private String buildSearchContext(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            Request request = new Request.Builder()
+                    .url("https://html.duckduckgo.com/html/?q="
+                            + java.net.URLEncoder.encode(query.trim(), "UTF-8"))
+                    .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+                    .get()
+                    .build();
+            try (okhttp3.Response resp = modelFetchClient.newCall(request).execute()) {
+                if (!resp.isSuccessful() || resp.body() == null) {
+                    return null;
+                }
+                String html = resp.body().string();
+                java.util.regex.Matcher matcher = java.util.regex.Pattern
+                        .compile("result__a[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>",
+                                java.util.regex.Pattern.DOTALL)
+                        .matcher(html);
+                StringBuilder context = new StringBuilder();
+                int count = 0;
+                while (matcher.find() && count < 5) {
+                    String url = matcher.group(1);
+                    String title = matcher.group(2).replaceAll("<[^>]+>", "").trim();
+                    if (title.isEmpty() || url.isEmpty()) {
+                        continue;
+                    }
+                    context.append("- ").append(title).append(" (").append(url).append(")\n");
+                    count++;
+                }
+                if (context.length() == 0) {
+                    return null;
+                }
+                return "Web search results for \"" + query.trim() + "\":\n" + context;
+            }
+        } catch (Exception e) {
+            appendRuntimeLog("Web search failed: " + e);
+            return null;
+        }
     }
 
     /**
@@ -305,16 +804,101 @@ public class LocalServer extends NanoHTTPD {
     private final ConcurrentHashMap<String, ActiveGeneration> activeGenerations = new ConcurrentHashMap<>();
 
     public LocalServer(Context context, int port) {
-        super(port);
+        /** Loopback only: this server exists for the bundled WebView and used
+         *  to be reachable from the whole LAN without authentication. */
+        super("127.0.0.1", port);
         this.context = context;
         this.dbHelper = new LocalDatabaseHelper(context);
         this.httpClient = new OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
+                /** Model replies can pause for a long time while reasoning; a
+                 *  read timeout here aborted healthy streams. */
+                .readTimeout(0, TimeUnit.SECONDS)
                 .writeTimeout(60, TimeUnit.SECONDS)
                 .build();
-        // Eagerly index models from gateway on server startup
-        new Thread(this::fetchModelsFromGateway).start();
+        this.modelFetchClient = new OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .build();
+        loadCachedModels();
+        watchdog.scheduleWithFixedDelay(this::reapStalledStreams, 15, 15, TimeUnit.SECONDS);
+        watchdog.schedule(() -> {
+            lastModelsFetchTime = System.currentTimeMillis();
+            fetchModelsFromGateway();
+        }, 2, TimeUnit.SECONDS);
+    }
+
+    @Override
+    public void stop() {
+        watchdog.shutdownNow();
+        for (ActiveGeneration gen : activeGenerations.values()) {
+            try {
+                if (gen.activeCall != null) {
+                    gen.activeCall.cancel();
+                }
+            } catch (Exception ignored) {
+            }
+            gen.sink.detach();
+        }
+        activeGenerations.clear();
+        try {
+            dbHelper.close();
+        } catch (Exception ignored) {
+        }
+        super.stop();
+    }
+
+    private void reapStalledStreams() {
+        try {
+            long now = System.currentTimeMillis();
+            for (ActiveGeneration gen : activeGenerations.values()) {
+                if (gen.sink.reapIfStalled(now)) {
+                    appendRuntimeLog("Dropped stalled stream " + gen.streamId + " ("
+                            + gen.endpoint + "/" + gen.model + ")");
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "watchdog error", t);
+        }
+    }
+
+    /** Appends a line to logs/runtime.log (rotated once) for post-mortems. */
+    void appendRuntimeLog(String message) {
+        try {
+            File dir = new File(context.getFilesDir(), "logs");
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+            File file = new File(dir, "runtime.log");
+            if (file.length() > 256 * 1024) {
+                File rotated = new File(dir, "runtime.1.log");
+                if (rotated.exists()) {
+                    rotated.delete();
+                }
+                file.renameTo(rotated);
+            }
+            try (FileWriter writer = new FileWriter(file, true)) {
+                writer.write(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                        .format(new java.util.Date()) + " " + message + "\n");
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** Instantly serve the last successful listing after a restart. */
+    private void loadCachedModels() {
+        try {
+            String gateway = dbHelper.getSetting("models_llm_gateway", "");
+            String devpass = dbHelper.getSetting("models_devpass", "");
+            String go = dbHelper.getSetting("models_go", "");
+            String zen = dbHelper.getSetting("models_zen", "");
+            if (!gateway.isEmpty()) cachedLlmGatewayModels = new JSONArray(gateway);
+            if (!devpass.isEmpty()) cachedDevPassModels = new JSONArray(devpass);
+            if (!go.isEmpty()) cachedOpenCodeGoModels = new JSONArray(go);
+            if (!zen.isEmpty()) cachedOpenCodeZenModels = new JSONArray(zen);
+            modelsLoaded = !gateway.isEmpty() || !go.isEmpty() || !zen.isEmpty();
+        } catch (Throwable ignored) {
+        }
     }
 
     public LocalDatabaseHelper getDbHelper() {
@@ -353,7 +937,8 @@ public class LocalServer extends NanoHTTPD {
     }
 
     private Response handleApi(IHTTPSession session, String uri, Method method) throws Exception {
-        String postData = readRequestBody(session, method);
+        Map<String, String> parsedFiles = new HashMap<>();
+        String postData = readRequestBody(session, method, parsedFiles);
 
         // 1. Config
         if (uri.equals("/api/config")) {
@@ -492,19 +1077,78 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", endpoints.toString());
         }
 
+        /** Endpoint token config: powers the context tracker's percentage and
+         *  limit display. Filled from the model list with a sane default. */
+        if (uri.startsWith("/api/endpoints/token-config")) {
+            JSONObject tokenConfig = new JSONObject();
+            JSONObject perModel = new JSONObject();
+            java.util.LinkedHashSet<String> all = new java.util.LinkedHashSet<>();
+            for (JSONArray list : new JSONArray[]{
+                    cachedOpenCodeGoModels, cachedOpenCodeZenModels,
+                    cachedLlmGatewayModels, cachedDevPassModels}) {
+                for (int i = 0; i < list.length(); i++) {
+                    all.add(list.optString(i));
+                }
+            }
+            for (String m : all) {
+                if (m.isEmpty()) {
+                    continue;
+                }
+                JSONObject cfg = new JSONObject();
+                cfg.put("context", estimateContextWindow(m));
+                perModel.put(m, cfg);
+            }
+            tokenConfig.put("OpenCode Go", perModel);
+            tokenConfig.put("OpenCode Zen", perModel);
+            tokenConfig.put("LLM Gateway", perModel);
+            tokenConfig.put("DevPass", perModel);
+            return newFixedLengthResponse(Response.Status.OK, "application/json", tokenConfig.toString());
+        }
+
+        /** Roles: the client hides every tool unless the role grants it. The
+         *  on-device server is single-user, so grant the full set and let the
+         *  capability list decide what is actually offered. */
+        if (uri.startsWith("/api/roles")) {
+            JSONObject permissions = new JSONObject();
+            String[] types = {"PROMPTS", "BOOKMARKS", "AGENTS", "MEMORIES", "MULTI_CONVO",
+                    "TEMPORARY_CHAT", "RUN_CODE", "WEB_SEARCH", "PEOPLE_PICKER", "MARKETPLACE",
+                    "FILE_SEARCH", "FILE_CITATIONS", "MCP_SERVERS", "REMOTE_AGENTS", "SKILLS",
+                    "SHARED_LINKS", "SCHEDULES"};
+            for (String type : types) {
+                JSONObject grant = new JSONObject();
+                grant.put("USE", true);
+                grant.put("CREATE", true);
+                grant.put("UPDATE", true);
+                grant.put("READ", true);
+                grant.put("READ_AUTHOR", true);
+                grant.put("SHARE", true);
+                grant.put("OPT_OUT", true);
+                grant.put("VIEW_USERS", true);
+                grant.put("VIEW_GROUPS", true);
+                grant.put("VIEW_ROLES", true);
+                grant.put("SHARE_PUBLIC", true);
+                permissions.put(type, grant);
+            }
+            JSONObject role = new JSONObject();
+            role.put("name", uri.substring("/api/roles".length()) .replaceFirst("^/", ""));
+            role.put("permissions", permissions);
+            return newFixedLengthResponse(Response.Status.OK, "application/json", role.toString());
+        }
+
         // 5. Models
         if (uri.equals("/api/models")) {
             long now = System.currentTimeMillis();
-            if ((now - lastModelsFetchTime) > 300000 && !isFetchingModels) {
+            /** Throttle attempts, not only successes: a failing gateway used to
+             *  leave the timestamp at zero, so every request spawned another
+             *  round of slow fetches. */
+            long interval = modelsLoaded ? 300000L : 60000L;
+            if ((now - lastModelsFetchTime) > interval && !isFetchingModels) {
+                lastModelsFetchTime = now;
+                isFetchingModels = true;
                 new Thread(this::fetchModelsFromGateway).start();
             }
-            if (!modelsLoaded && isFetchingModels) {
-                synchronized (modelsLock) {
-                    try {
-                        modelsLock.wait(2500);
-                    } catch (InterruptedException ignored) {}
-                }
-            }
+            /** Never block the response: the client polls, and a slow fetch
+             *  should not freeze the model picker. */
             JSONObject modelsObj = new JSONObject();
             modelsObj.put("LLM Gateway", cachedLlmGatewayModels);
             modelsObj.put("DevPass", cachedDevPassModels);
@@ -665,8 +1309,29 @@ public class LocalServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"success\":true}");
         }
 
-        // 14. Files
+        // 14. Files (attachments: multipart upload, config, download/preview)
         if (uri.startsWith("/api/files")) {
+            String filePath = uri.length() > "/api/files".length()
+                    ? uri.substring("/api/files".length()) : "";
+            if (filePath.startsWith("/config")) {
+                return newFixedLengthResponse(Response.Status.OK, "application/json", "{}");
+            }
+            if (filePath.startsWith("/usage")) {
+                return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"usage\":0}");
+            }
+            if (Method.POST.equals(method) || Method.PUT.equals(method)) {
+                return handleFileUpload(session, parsedFiles);
+            }
+            if (Method.GET.equals(method) && filePath.startsWith("/") && filePath.length() > 1) {
+                String fileId = filePath.substring(1);
+                if (fileId.endsWith("/preview")) {
+                    fileId = fileId.substring(0, fileId.length() - "/preview".length());
+                }
+                if (fileId.endsWith("/download")) {
+                    fileId = fileId.substring(0, fileId.length() - "/download".length());
+                }
+                return serveUploadedFile(fileId);
+            }
             return newFixedLengthResponse(Response.Status.OK, "application/json", "[]");
         }
 
@@ -906,14 +1571,35 @@ public class LocalServer extends NanoHTTPD {
             // Save conversation and user message in local DB
             String convoTitle = prompt.length() > 30 ? prompt.substring(0, 30) + "..." : prompt;
             dbHelper.saveConversation(conversationId, convoTitle, endpoint, model);
-            dbHelper.saveMessage(userMessageId, conversationId, parentMessageId, "User", prompt, true, false);
+
+            /** Attachment references travel with the message; the bytes live in
+             *  the files table and are inlined for the model at request time. */
+            JSONArray fileRefs = sanitizeFileRefs(reqJson.optJSONArray("files"));
+            String filesJson = fileRefs.length() > 0 ? fileRefs.toString() : null;
+            dbHelper.saveMessage(userMessageId, conversationId, parentMessageId, "User", prompt, true, false,
+                    filesJson, 0, null);
 
             String apiKey = reqJson.optString("apiKey", "");
             String reasoningEffort = reqJson.optString("reasoning_effort", "");
+            JSONObject ephemeralAgent = reqJson.optJSONObject("ephemeralAgent");
+            boolean webSearch = ephemeralAgent != null && ephemeralAgent.optBoolean("web_search", false);
+
+            /** A resend in the same conversation supersedes the old generation. */
+            for (ActiveGeneration existing : activeGenerations.values()) {
+                if (conversationId.equals(existing.conversationId)) {
+                    existing.aborted = true;
+                    if (existing.activeCall != null) {
+                        try {
+                            existing.activeCall.cancel();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+            }
 
             ActiveGeneration gen = new ActiveGeneration(streamId, conversationId, userMessageId,
                     responseMessageId, parentMessageId, model, endpoint, prompt, apiKey,
-                    reasoningEffort, now);
+                    reasoningEffort, fileRefs, webSearch, now);
             activeGenerations.put(streamId, gen);
 
             JSONObject startResp = new JSONObject();
@@ -949,11 +1635,35 @@ public class LocalServer extends NanoHTTPD {
         try {
             PipedInputStream in = new PipedInputStream(32768);
             PipedOutputStream out = new PipedOutputStream(in);
-            gen.streamOut = out;
+            gen.sink.attach(out);
 
+            if (gen.streaming) {
+                /** A reconnect attaches to the running generation and replays the
+                 *  text so far - it must not start a second upstream call. */
+                appendRuntimeLog("Re-attached to stream " + gen.streamId);
+                JSONObject snapshot = new JSONObject();
+                snapshot.put("message", true);
+                snapshot.put("initial", false);
+                snapshot.put("text", gen.streamedText);
+                snapshot.put("messageId", gen.responseMessageId);
+                snapshot.put("parentMessageId", gen.userMessageId);
+                snapshot.put("conversationId", gen.conversationId);
+                snapshot.put("sender", gen.model);
+                gen.sink.send("message", snapshot);
+
+                Response reconnectResp = newChunkedResponse(Response.Status.OK, "text/event-stream; charset=utf-8", in);
+                reconnectResp.addHeader("Cache-Control", "no-cache, no-transform");
+                reconnectResp.addHeader("Connection", "keep-alive");
+                reconnectResp.addHeader("X-Generation-Protocol-Version", "2");
+                return reconnectResp;
+            }
+
+            gen.streaming = true;
             new Thread(() -> {
                 StringBuilder fullResponse = new StringBuilder();
                 StringBuilder reasoningResponse = new StringBuilder();
+                int usageInput = 0;
+                int usageOutput = 0;
                 try {
                     // 1. Emit CREATED event
                     JSONObject createdData = new JSONObject();
@@ -968,8 +1678,7 @@ public class LocalServer extends NanoHTTPD {
                     userMsgObj.put("isCreatedByUser", true);
                     createdData.put("message", userMsgObj);
 
-                    out.write(("event: message\ndata: " + createdData.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
-                    out.flush();
+                    gen.sink.send("message", createdData);
 
                     // 2. Determine API Token
                     String token = resolveApiToken(gen.endpoint, gen.apiKey);
@@ -990,6 +1699,14 @@ public class LocalServer extends NanoHTTPD {
                     sysMsg.put("role", "system");
                     sysMsg.put("content", "You are a helpful AI assistant.");
                     messages.put(sysMsg);
+
+                    /** Composer web-search badge: hand the model fresh results. */
+                    if (gen.webSearch) {
+                        String searchContext = buildSearchContext(gen.prompt);
+                        if (searchContext != null) {
+                            sysMsg.put("content", sysMsg.optString("content", "") + "\n\n" + searchContext);
+                        }
+                    }
 
                     // Fetch conversation history from SQLite
                     JSONArray hist = dbHelper.getMessagesJson(gen.conversationId);
@@ -1027,6 +1744,13 @@ public class LocalServer extends NanoHTTPD {
 
                     boolean isResponsesModel = isOpenCode && (modelLower.startsWith("muse") || modelLower.startsWith("gpt") || modelLower.startsWith("grok"));
 
+                    /** Attached images ride with the current user turn, in the
+                     *  shape this route understands. */
+                    String routeKind = isResponsesModel ? "responses" : (isAnthropicModel ? "anthropic" : "chat");
+                    if (gen.fileRefs != null && gen.fileRefs.length() > 0) {
+                        currentPromptMsg.put("content", composeUserContent(gen.prompt, gen.fileRefs, routeKind));
+                    }
+
                     String completionsUrl = "https://api.llmgateway.io/v1/chat/completions";
                     if (isGo) {
                         if (isResponsesModel) {
@@ -1061,6 +1785,14 @@ public class LocalServer extends NanoHTTPD {
 
                     applyReasoningEffort(requestPayload, gen.reasoningEffort, isResponsesModel);
 
+                    if (!isAnthropicModel && !isResponsesModel) {
+                        /** Ask the gateway for a final usage chunk so the context
+                         *  tracker has real token counts instead of nothing. */
+                        JSONObject streamOptions = new JSONObject();
+                        streamOptions.put("include_usage", true);
+                        requestPayload.put("stream_options", streamOptions);
+                    }
+
                     Request.Builder reqBuilder = new Request.Builder()
                             .url(completionsUrl)
                             .addHeader("x-source", X_SOURCE_HEADER)
@@ -1090,18 +1822,18 @@ public class LocalServer extends NanoHTTPD {
                                 errMsg = "Invalid API Key or Token Required for " + gen.endpoint + ". Please set your key in Settings -> Provider Keys.";
                             }
                             fullResponse.append(errMsg);
+                            gen.streamedText = composeStreamedText(reasoningResponse, fullResponse);
 
                             JSONObject chunk = new JSONObject();
                             chunk.put("message", true);
                             chunk.put("initial", false);
-                            chunk.put("text", fullResponse.toString());
+                            chunk.put("text", gen.streamedText);
                             chunk.put("messageId", gen.responseMessageId);
                             chunk.put("parentMessageId", gen.userMessageId);
                             chunk.put("conversationId", gen.conversationId);
                             chunk.put("sender", gen.model);
 
-                            out.write(("event: message\ndata: " + chunk.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
-                            out.flush();
+                            gen.sink.send("message", chunk);
                         } else {
                             ResponseBody rb = okResp.body();
                             InputStream is = rb.byteStream();
@@ -1127,6 +1859,34 @@ public class LocalServer extends NanoHTTPD {
                                             JSONObject deltaObj = new JSONObject(dataStr);
                                             String chunkText = null;
                                             String chunkReasoning = null;
+
+                                            /** Token usage: OpenAI sends a final
+                                             *  usage chunk, Anthropic reports on
+                                             *  message_start/message_delta and the
+                                             *  Responses API on response.completed. */
+                                            JSONObject usageObj = deltaObj.optJSONObject("usage");
+                                            if (usageObj != null) {
+                                                usageInput = usageObj.optInt("input_tokens",
+                                                        usageObj.optInt("prompt_tokens", usageInput));
+                                                usageOutput = usageObj.optInt("output_tokens",
+                                                        usageObj.optInt("completion_tokens", usageOutput));
+                                            }
+                                            JSONObject usageMessage = deltaObj.optJSONObject("message");
+                                            if (usageMessage != null) {
+                                                JSONObject inner = usageMessage.optJSONObject("usage");
+                                                if (inner != null) {
+                                                    usageInput = inner.optInt("input_tokens", usageInput);
+                                                    usageOutput = inner.optInt("output_tokens", usageOutput);
+                                                }
+                                            }
+                                            JSONObject usageResponse = deltaObj.optJSONObject("response");
+                                            if (usageResponse != null) {
+                                                JSONObject inner = usageResponse.optJSONObject("usage");
+                                                if (inner != null) {
+                                                    usageInput = inner.optInt("input_tokens", usageInput);
+                                                    usageOutput = inner.optInt("output_tokens", usageOutput);
+                                                }
+                                            }
 
                                             // 1. OpenAI Chat Completions format
                                             JSONArray choices = deltaObj.optJSONArray("choices");
@@ -1176,17 +1936,17 @@ public class LocalServer extends NanoHTTPD {
                                             }
 
                                             if (hasText || hasReasoning) {
+                                                gen.streamedText = composeStreamedText(reasoningResponse, fullResponse);
                                                 JSONObject sseData = new JSONObject();
                                                 sseData.put("message", true);
                                                 sseData.put("initial", false);
-                                                sseData.put("text", composeStreamedText(reasoningResponse, fullResponse));
+                                                sseData.put("text", gen.streamedText);
                                                 sseData.put("messageId", gen.responseMessageId);
                                                 sseData.put("parentMessageId", gen.userMessageId);
                                                 sseData.put("conversationId", gen.conversationId);
                                                 sseData.put("sender", gen.model);
 
-                                                out.write(("event: message\ndata: " + sseData.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
-                                                out.flush();
+                                                gen.sink.send("message", sseData);
                                             }
                                         } catch (Exception ignored) {}
                                     }
@@ -1195,11 +1955,55 @@ public class LocalServer extends NanoHTTPD {
                         }
                     }
 
+                    // Token accounting for the context tracker
+                    int totalTokens = usageInput + usageOutput;
+                    if (totalTokens <= 0) {
+                        totalTokens = Math.max(1, (gen.prompt.length() + fullResponse.length()
+                                + reasoningResponse.length()) / 4);
+                    }
+                    int maxContext = estimateContextWindow(gen.model);
+                    JSONObject contextData = new JSONObject();
+                    JSONObject breakdown = new JSONObject();
+                    breakdown.put("maxContextTokens", maxContext);
+                    breakdown.put("messageTokens", totalTokens);
+                    breakdown.put("messageCount", 1);
+                    contextData.put("breakdown", breakdown);
+                    contextData.put("contextBudget", maxContext);
+                    contextData.put("remainingContextTokens", Math.max(0, maxContext - totalTokens));
+                    contextData.put("model", gen.model);
+                    contextData.put("provider", gen.endpoint);
+
+                    JSONObject metadataObj = new JSONObject();
+                    metadataObj.put("usage", new JSONObject().put("input", usageInput).put("output", usageOutput));
+                    metadataObj.put("contextUsage", contextData);
+                    String metadataJson = metadataObj.toString();
+
                     // Save assistant message to SQLite (reasoning stays in the
                     // client's :::thinking wrapper so it survives a reload)
                     if (fullResponse.length() > 0 || reasoningResponse.length() > 0) {
-                        dbHelper.saveMessage(gen.responseMessageId, gen.conversationId, gen.userMessageId, gen.model, composeStreamedText(reasoningResponse, fullResponse), false, false);
+                        dbHelper.saveMessage(gen.responseMessageId, gen.conversationId, gen.userMessageId, gen.model,
+                                composeStreamedText(reasoningResponse, fullResponse), false, false,
+                                null, totalTokens, metadataJson);
                     }
+
+                    /** Live tracker events, emitted before FINAL so the gauge
+                     *  updates while the response is still on screen. */
+                    JSONObject usageEvent = new JSONObject();
+                    usageEvent.put("event", "on_token_usage");
+                    JSONObject usageData = new JSONObject();
+                    usageData.put("input_tokens", usageInput);
+                    usageData.put("output_tokens", usageOutput);
+                    usageData.put("total_tokens", totalTokens);
+                    usageData.put("model", gen.model);
+                    usageData.put("provider", gen.endpoint);
+                    usageData.put("usage_type", "message");
+                    usageEvent.put("data", usageData);
+                    gen.sink.send("message", usageEvent);
+
+                    JSONObject contextEvent = new JSONObject();
+                    contextEvent.put("event", "on_context_usage");
+                    contextEvent.put("data", contextData);
+                    gen.sink.send("message", contextEvent);
 
                     // Emit FINAL event
                     JSONObject finalData = new JSONObject();
@@ -1230,16 +2034,18 @@ public class LocalServer extends NanoHTTPD {
                     respMsg.put("text", composeStreamedText(reasoningResponse, fullResponse));
                     respMsg.put("sender", gen.model);
                     respMsg.put("isCreatedByUser", false);
+                    respMsg.put("tokenCount", totalTokens);
+                    respMsg.put("metadata", metadataObj);
                     if (gen.aborted) {
                         respMsg.put("unfinished", true);
                     }
                     finalData.put("responseMessage", respMsg);
 
-                    out.write(("event: message\ndata: " + finalData.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
-                    out.flush();
+                    gen.sink.send("message", finalData);
 
                 } catch (Exception e) {
                     Log.e(TAG, "Streaming error in thread", e);
+                    appendRuntimeLog("Generation error (" + gen.endpoint + "/" + gen.model + "): " + e);
                     try {
                         JSONObject errObj = new JSONObject();
                         errObj.put("final", true);
@@ -1255,14 +2061,12 @@ public class LocalServer extends NanoHTTPD {
                         rObj.put("sender", gen.model);
                         rObj.put("isCreatedByUser", false);
                         errObj.put("responseMessage", rObj);
-                        out.write(("event: message\ndata: " + errObj.toString() + "\n\n").getBytes(StandardCharsets.UTF_8));
-                        out.flush();
+                        gen.sink.send("message", errObj);
                     } catch (Exception ignored) {}
                 } finally {
+                    gen.streaming = false;
                     activeGenerations.remove(gen.streamId);
-                    try {
-                        out.close();
-                    } catch (Exception ignored) {}
+                    gen.sink.detach();
                 }
             }).start();
 
@@ -1384,8 +2188,10 @@ public class LocalServer extends NanoHTTPD {
                 reqBuilder.addHeader("Authorization", "Bearer " + token);
             }
 
-            PipedInputStream in = new PipedInputStream();
+            PipedInputStream in = new PipedInputStream(32768);
             PipedOutputStream out = new PipedOutputStream(in);
+            final SseSink sink = new SseSink();
+            sink.attach(out);
 
             new Thread(() -> {
                 StringBuilder fullResponse = new StringBuilder();
@@ -1402,10 +2208,9 @@ public class LocalServer extends NanoHTTPD {
                                 .put("conversationId", conversationId)
                                 .put("sender", model)
                                 .toString() + "\n\n";
-                        out.write(sseErr.getBytes(StandardCharsets.UTF_8));
-                        out.write("event: error\ndata: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
-                        out.flush();
-                        out.close();
+                        sink.sendRaw(sseErr);
+                        sink.sendRaw("event: error\ndata: [DONE]\n\n");
+                        sink.detach();
                         return;
                     }
 
@@ -1488,9 +2293,7 @@ public class LocalServer extends NanoHTTPD {
                                         sseData.put("conversationId", conversationId);
                                         sseData.put("sender", model);
 
-                                        String sseMsg = "event: message\ndata: " + sseData.toString() + "\n\n";
-                                        out.write(sseMsg.getBytes(StandardCharsets.UTF_8));
-                                        out.flush();
+                                        sink.send("message", sseData);
                                     }
                                 } catch (Exception ignored) {}
                             }
@@ -1500,11 +2303,11 @@ public class LocalServer extends NanoHTTPD {
                     // Save assistant message to local database
                     dbHelper.saveMessage(messageId, conversationId, parentMessageId, model, composeStreamedText(reasoningResponse, fullResponse), false, false);
 
-                    out.write("event: message\ndata: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
-                    out.flush();
-                    out.close();
+                    sink.sendRaw("event: message\ndata: [DONE]\n\n");
+                    sink.detach();
                 } catch (Exception streamErr) {
                     Log.e(TAG, "Streaming error", streamErr);
+                    appendRuntimeLog("Legacy stream error (" + endpoint + "/" + model + "): " + streamErr);
                     try {
                         String sseErr = "event: message\ndata: " + new JSONObject()
                                 .put("text", "Streaming error: " + streamErr.getMessage())
@@ -1512,9 +2315,8 @@ public class LocalServer extends NanoHTTPD {
                                 .put("conversationId", conversationId)
                                 .put("error", true)
                                 .toString() + "\n\n";
-                        out.write(sseErr.getBytes(StandardCharsets.UTF_8));
-                        out.flush();
-                        out.close();
+                        sink.sendRaw(sseErr);
+                        sink.detach();
                     } catch (Exception ignored) {}
                 }
             }).start();
@@ -1597,7 +2399,7 @@ public class LocalServer extends NanoHTTPD {
                     .get()
                     .build();
 
-            try (okhttp3.Response resp = httpClient.newCall(req).execute()) {
+            try (okhttp3.Response resp = modelFetchClient.newCall(req).execute()) {
                 if (resp.isSuccessful() && resp.body() != null) {
                     String bodyStr = resp.body().string();
                     JSONObject json = new JSONObject(bodyStr);
@@ -1651,7 +2453,7 @@ public class LocalServer extends NanoHTTPD {
                                     .addHeader("User-Agent", USER_AGENT_OPENCODE)
                                     .get()
                                     .build();
-                            try (okhttp3.Response goResp = httpClient.newCall(goReq).execute()) {
+                            try (okhttp3.Response goResp = modelFetchClient.newCall(goReq).execute()) {
                                 if (goResp.isSuccessful() && goResp.body() != null) {
                                     JSONObject goJson = new JSONObject(goResp.body().string());
                                     JSONArray goData = goJson.optJSONArray("data");
@@ -1683,7 +2485,7 @@ public class LocalServer extends NanoHTTPD {
                                     .addHeader("User-Agent", USER_AGENT_OPENCODE)
                                     .get()
                                     .build();
-                            try (okhttp3.Response zenResp = httpClient.newCall(zenReq).execute()) {
+                            try (okhttp3.Response zenResp = modelFetchClient.newCall(zenReq).execute()) {
                                 if (zenResp.isSuccessful() && zenResp.body() != null) {
                                     JSONObject zenJson = new JSONObject(zenResp.body().string());
                                     JSONArray zenData = zenJson.optJSONArray("data");
@@ -1707,14 +2509,21 @@ public class LocalServer extends NanoHTTPD {
                             Log.w(TAG, "Failed to fetch OpenCode Zen models", e);
                         }
 
-                        lastModelsFetchTime = System.currentTimeMillis();
                         modelsLoaded = true;
+                        try {
+                            dbHelper.setSetting("models_llm_gateway", gatewayList.toString());
+                            dbHelper.setSetting("models_devpass", new JSONArray(new java.util.ArrayList<>(devPassSet)).toString());
+                            dbHelper.setSetting("models_go", cachedOpenCodeGoModels.toString());
+                            dbHelper.setSetting("models_zen", cachedOpenCodeZenModels.toString());
+                        } catch (Exception ignored) {
+                        }
                         Log.i(TAG, "Indexed models: " + gatewayList.length() + " LLM Gateway models, " + devPassSet.size() + " DevPass models, " + cachedOpenCodeGoModels.length() + " Go models, " + cachedOpenCodeZenModels.length() + " Zen models");
                     }
                 }
             }
         } catch (Exception e) {
             Log.e(TAG, "Failed to background fetch models from gateway", e);
+            appendRuntimeLog("Model fetch failed: " + e);
         } finally {
             synchronized (modelsLock) {
                 isFetchingModels = false;

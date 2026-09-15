@@ -42,6 +42,7 @@ import usePastedTextEdit from '~/hooks/Files/usePastedTextEdit';
 import useAskAnswerMode from '~/hooks/Input/useAskAnswerMode';
 import AskUserQuestionPopover from './AskUserQuestionPopover';
 import InterruptSteerButton from './InterruptSteerButton';
+import AttachImageButton from './Files/AttachImageButton';
 import PastedTextDialog from './Files/PastedTextDialog';
 import DuringRunSendButton from './DuringRunSendButton';
 import ProjectLandingChip from '../ProjectLandingChip';
@@ -832,6 +833,15 @@ const ChatForm = memo(function ChatForm({
                   <AttachFileChat
                     conversation={conversation}
                     disableInputs={disableInputs}
+                    files={files}
+                    setFiles={setFiles}
+                    setFilesLoading={setFilesLoading}
+                  />
+                </div>
+                <div className="shrink-0">
+                  <AttachImageButton
+                    conversation={conversation}
+                    disabled={disableInputs}
                     files={files}
                     setFiles={setFiles}
                     setFilesLoading={setFilesLoading}

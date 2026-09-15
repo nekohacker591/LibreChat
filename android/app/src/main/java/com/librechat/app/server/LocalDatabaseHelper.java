@@ -17,6 +17,7 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
     public static final String TABLE_CONVERSATIONS = "conversations";
     public static final String TABLE_MESSAGES = "messages";
     public static final String TABLE_SETTINGS = "settings";
+    public static final String TABLE_FILES = "files";
 
     public LocalDatabaseHelper(Context context) {
         super(context, DATABASE_NAME, null, DATABASE_VERSION);
@@ -40,11 +41,16 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
                 "text TEXT, " +
                 "is_user INTEGER, " +
                 "error INTEGER, " +
+                "files_json TEXT, " +
+                "token_count INTEGER, " +
+                "metadata_json TEXT, " +
                 "created_at INTEGER)");
 
         db.execSQL("CREATE TABLE IF NOT EXISTS " + TABLE_SETTINGS + " (" +
                 "key_name TEXT PRIMARY KEY, " +
                 "key_value TEXT)");
+
+        createFilesTable(db);
     }
 
     @Override
@@ -52,7 +58,42 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
         db.execSQL("DROP TABLE IF EXISTS " + TABLE_CONVERSATIONS);
         db.execSQL("DROP TABLE IF EXISTS " + TABLE_MESSAGES);
         db.execSQL("DROP TABLE IF EXISTS " + TABLE_SETTINGS);
+        db.execSQL("DROP TABLE IF EXISTS " + TABLE_FILES);
         onCreate(db);
+    }
+
+    /**
+     * Schema evolves without bumping DATABASE_VERSION: an upgrade run wipes all
+     * user data (conversations, messages, keys), so new tables/columns are
+     * added idempotently on open instead.
+     */
+    @Override
+    public void onOpen(SQLiteDatabase db) {
+        super.onOpen(db);
+        createFilesTable(db);
+        addColumnIfMissing(db, TABLE_MESSAGES, "files_json TEXT");
+        addColumnIfMissing(db, TABLE_MESSAGES, "token_count INTEGER");
+        addColumnIfMissing(db, TABLE_MESSAGES, "metadata_json TEXT");
+    }
+
+    private static void createFilesTable(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS " + TABLE_FILES + " (" +
+                "file_id TEXT PRIMARY KEY, " +
+                "filename TEXT, " +
+                "mime TEXT, " +
+                "bytes INTEGER, " +
+                "path TEXT, " +
+                "width INTEGER, " +
+                "height INTEGER, " +
+                "created_at INTEGER)");
+    }
+
+    private static void addColumnIfMissing(SQLiteDatabase db, String table, String columnDefinition) {
+        try {
+            db.execSQL("ALTER TABLE " + table + " ADD COLUMN " + columnDefinition);
+        } catch (Exception ignored) {
+            /** Already present. */
+        }
     }
 
     // Conversations
@@ -149,6 +190,12 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
     // Messages
     public synchronized void saveMessage(String messageId, String conversationId, String parentMessageId,
                                         String sender, String text, boolean isUser, boolean error) {
+        saveMessage(messageId, conversationId, parentMessageId, sender, text, isUser, error, null, 0, null);
+    }
+
+    public synchronized void saveMessage(String messageId, String conversationId, String parentMessageId,
+                                        String sender, String text, boolean isUser, boolean error,
+                                        String filesJson, int tokenCount, String metadataJson) {
         SQLiteDatabase db = getWritableDatabase();
         ContentValues cv = new ContentValues();
         cv.put("message_id", messageId);
@@ -158,6 +205,15 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
         cv.put("text", text);
         cv.put("is_user", isUser ? 1 : 0);
         cv.put("error", error ? 1 : 0);
+        if (filesJson != null && !filesJson.isEmpty()) {
+            cv.put("files_json", filesJson);
+        }
+        if (tokenCount > 0) {
+            cv.put("token_count", tokenCount);
+        }
+        if (metadataJson != null && !metadataJson.isEmpty()) {
+            cv.put("metadata_json", metadataJson);
+        }
         cv.put("created_at", System.currentTimeMillis());
         db.insertWithOnConflict(TABLE_MESSAGES, null, cv, SQLiteDatabase.CONFLICT_REPLACE);
 
@@ -184,6 +240,25 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
                 obj.put("error", c.getInt(c.getColumnIndexOrThrow("error")) == 1);
                 obj.put("createdAt", formatIsoDate(c.getLong(c.getColumnIndexOrThrow("created_at"))));
                 obj.put("updatedAt", formatIsoDate(c.getLong(c.getColumnIndexOrThrow("created_at"))));
+
+                int filesIdx = c.getColumnIndex("files_json");
+                if (filesIdx >= 0 && !c.isNull(filesIdx)) {
+                    try {
+                        obj.put("files", new JSONArray(c.getString(filesIdx)));
+                    } catch (Exception ignored) {
+                    }
+                }
+                int tokenIdx = c.getColumnIndex("token_count");
+                if (tokenIdx >= 0 && !c.isNull(tokenIdx) && c.getInt(tokenIdx) > 0) {
+                    obj.put("tokenCount", c.getInt(tokenIdx));
+                }
+                int metaIdx = c.getColumnIndex("metadata_json");
+                if (metaIdx >= 0 && !c.isNull(metaIdx)) {
+                    try {
+                        obj.put("metadata", new JSONObject(c.getString(metaIdx)));
+                    } catch (Exception ignored) {
+                    }
+                }
                 arr.put(obj);
             }
         } catch (Exception e) {
@@ -192,6 +267,50 @@ public class LocalDatabaseHelper extends SQLiteOpenHelper {
             c.close();
         }
         return arr;
+    }
+
+    // Files (user attachments kept on device)
+    public synchronized void saveFile(String fileId, String filename, String mime, long bytes,
+                                      String path, int width, int height) {
+        SQLiteDatabase db = getWritableDatabase();
+        ContentValues cv = new ContentValues();
+        cv.put("file_id", fileId);
+        cv.put("filename", filename);
+        cv.put("mime", mime);
+        cv.put("bytes", bytes);
+        cv.put("path", path);
+        cv.put("width", width);
+        cv.put("height", height);
+        cv.put("created_at", System.currentTimeMillis());
+        db.insertWithOnConflict(TABLE_FILES, null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+    }
+
+    /** Returns {file_id, filename, mime, bytes, path, width, height} or null. */
+    public synchronized JSONObject getFileRecord(String fileId) {
+        SQLiteDatabase db = getReadableDatabase();
+        Cursor c = db.query(TABLE_FILES, null, "file_id = ?", new String[]{fileId}, null, null, null);
+        try {
+            if (c.moveToFirst()) {
+                JSONObject obj = new JSONObject();
+                obj.put("file_id", c.getString(c.getColumnIndexOrThrow("file_id")));
+                obj.put("filename", c.getString(c.getColumnIndexOrThrow("filename")));
+                obj.put("mime", c.getString(c.getColumnIndexOrThrow("mime")));
+                obj.put("bytes", c.getLong(c.getColumnIndexOrThrow("bytes")));
+                obj.put("path", c.getString(c.getColumnIndexOrThrow("path")));
+                obj.put("width", c.getInt(c.getColumnIndexOrThrow("width")));
+                obj.put("height", c.getInt(c.getColumnIndexOrThrow("height")));
+                return obj;
+            }
+        } catch (Exception ignored) {
+        } finally {
+            c.close();
+        }
+        return null;
+    }
+
+    public synchronized void deleteFile(String fileId) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.delete(TABLE_FILES, "file_id = ?", new String[]{fileId});
     }
 
     // Settings / Keys

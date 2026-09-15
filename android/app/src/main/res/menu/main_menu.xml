@@ -17,4 +17,8 @@
         android:id="@+id/action_check_updates"
         android:title="Check for Updates"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/action_share_logs"
+        android:title="Share Logs"
+        app:showAsAction="never" />
 </menu>

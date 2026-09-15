@@ -64,7 +64,7 @@ public class UpdateManager {
             @Override
             public void onFailure(Call call, java.io.IOException e) {
                 if (isManual) {
-                    mainHandler.post(() -> Toast.makeText(activity, "Update check failed: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                    toastSafe("Update check failed: " + e.getMessage(), Toast.LENGTH_LONG);
                 }
             }
 
@@ -72,7 +72,7 @@ public class UpdateManager {
             public void onResponse(Call call, Response response) throws java.io.IOException {
                 if (!response.isSuccessful()) {
                     if (isManual) {
-                        mainHandler.post(() -> Toast.makeText(activity, "No release found or rate-limited.", Toast.LENGTH_SHORT).show());
+                        toastSafe("No release found or rate-limited.", Toast.LENGTH_SHORT);
                     }
                     return;
                 }
@@ -105,6 +105,9 @@ public class UpdateManager {
                         final String releaseNotes = release.optString("body", "Bug fixes and improvements.");
 
                         mainHandler.post(() -> {
+                            if (!isActivityUsable()) {
+                                return;
+                            }
                             if (finalApkUrl != null) {
                                 showUpdatePrompt(tagName, finalApkUrl, finalApkName, releaseNotes);
                             } else if (isManual) {
@@ -112,13 +115,31 @@ public class UpdateManager {
                             }
                         });
                     } else if (isManual) {
-                        mainHandler.post(() -> Toast.makeText(activity, "LibreChat is up to date (v" + currentVersion + ").", Toast.LENGTH_SHORT).show());
+                        toastSafe("LibreChat is up to date (v" + currentVersion + ").", Toast.LENGTH_SHORT);
                     }
                 } catch (Exception e) {
                     if (isManual) {
-                        mainHandler.post(() -> Toast.makeText(activity, "Error parsing update: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                        toastSafe("Error parsing update: " + e.getMessage(), Toast.LENGTH_SHORT);
                     }
                 }
+            }
+        });
+    }
+
+    /** The activity may be gone by the time a background reply lands; showing a
+     *  dialog or toast on a destroyed context kills the process. */
+    private boolean isActivityUsable() {
+        return activity != null && !activity.isFinishing() && !activity.isDestroyed();
+    }
+
+    private void toastSafe(String message, int duration) {
+        mainHandler.post(() -> {
+            if (!isActivityUsable()) {
+                return;
+            }
+            try {
+                Toast.makeText(activity, message, duration).show();
+            } catch (Exception ignored) {
             }
         });
     }
@@ -146,30 +167,43 @@ public class UpdateManager {
     }
 
     private void showUpdatePrompt(String version, String downloadUrl, String fileName, String notes) {
-        new AlertDialog.Builder(activity)
-                .setTitle("Update Available: v" + version)
-                .setMessage("A new version of LibreChat is available.\n\nChanges:\n" + notes + "\n\nWould you like to download and install it now?")
-                .setPositiveButton("Download & Install", (dialog, which) -> downloadAndInstallApk(downloadUrl, fileName))
-                .setNegativeButton("Later", null)
-                .show();
+        if (!isActivityUsable()) {
+            return;
+        }
+        try {
+            new AlertDialog.Builder(activity)
+                    .setTitle("Update Available: v" + version)
+                    .setMessage("A new version of LibreChat is available.\n\nChanges:\n" + notes + "\n\nWould you like to download and install it now?")
+                    .setPositiveButton("Download & Install", (dialog, which) -> downloadAndInstallApk(downloadUrl, fileName))
+                    .setNegativeButton("Later", null)
+                    .show();
+        } catch (Exception ignored) {
+        }
     }
 
     private void downloadAndInstallApk(String url, String fileName) {
+        if (!isActivityUsable()) {
+            return;
+        }
         ProgressDialog progress = new ProgressDialog(activity);
         progress.setTitle("Downloading Update");
         progress.setMessage("Please wait while the update downloads...");
         progress.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
         progress.setMax(100);
         progress.setCancelable(false);
-        progress.show();
+        try {
+            progress.show();
+        } catch (Exception ignored) {
+            return;
+        }
 
         Request request = new Request.Builder().url(url).build();
         client.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, java.io.IOException e) {
                 mainHandler.post(() -> {
-                    progress.dismiss();
-                    Toast.makeText(activity, "Download failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    dismissSafe(progress);
+                    toastSafe("Download failed: " + e.getMessage(), Toast.LENGTH_LONG);
                 });
             }
 
@@ -177,8 +211,8 @@ public class UpdateManager {
             public void onResponse(Call call, Response response) throws java.io.IOException {
                 if (!response.isSuccessful()) {
                     mainHandler.post(() -> {
-                        progress.dismiss();
-                        Toast.makeText(activity, "Download error: HTTP " + response.code(), Toast.LENGTH_SHORT).show();
+                        dismissSafe(progress);
+                        toastSafe("Download error: HTTP " + response.code(), Toast.LENGTH_SHORT);
                     });
                     return;
                 }
@@ -194,13 +228,27 @@ public class UpdateManager {
                     byte[] buffer = new byte[8192];
                     long bytesRead = 0;
                     int read;
+                    final int[] lastPct = {0};
 
                     while ((read = is.read(buffer)) != -1) {
                         os.write(buffer, 0, read);
                         bytesRead += read;
                         if (totalBytes > 0) {
                             int pct = (int) ((bytesRead * 100) / totalBytes);
-                            mainHandler.post(() -> progress.setProgress(pct));
+                            /** Post at most one frame per 2%: the old code queued
+                             *  a runnable per 8 KB chunk. */
+                            if (pct - lastPct[0] >= 2 || pct == 100) {
+                                lastPct[0] = pct;
+                                mainHandler.post(() -> {
+                                    if (!isActivityUsable()) {
+                                        return;
+                                    }
+                                    try {
+                                        progress.setProgress(pct);
+                                    } catch (Exception ignored) {
+                                    }
+                                });
+                            }
                         }
                     }
 
@@ -209,20 +257,35 @@ public class UpdateManager {
                     is.close();
 
                     mainHandler.post(() -> {
-                        progress.dismiss();
-                        installApk(apkFile);
+                        dismissSafe(progress);
+                        if (isActivityUsable()) {
+                            installApk(apkFile);
+                        }
                     });
                 } catch (Exception e) {
                     mainHandler.post(() -> {
-                        progress.dismiss();
-                        Toast.makeText(activity, "Failed saving update: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                        dismissSafe(progress);
+                        toastSafe("Failed saving update: " + e.getMessage(), Toast.LENGTH_LONG);
                     });
                 }
             }
         });
     }
 
+    private void dismissSafe(ProgressDialog progress) {
+        if (!isActivityUsable()) {
+            return;
+        }
+        try {
+            progress.dismiss();
+        } catch (Exception ignored) {
+        }
+    }
+
     private void installApk(File apkFile) {
+        if (!isActivityUsable()) {
+            return;
+        }
         try {
             Uri apkUri;
             Intent intent = new Intent(Intent.ACTION_VIEW);

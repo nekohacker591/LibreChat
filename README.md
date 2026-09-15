@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/nekohacker591/LibreChat/releases/latest">
-    <img src="https://img.shields.io/github/v/release/nekohacker591/LibreChat?color=blue&label=Release%20v1.0.8" alt="Latest Release">
+    <img src="https://img.shields.io/github/v/release/nekohacker591/LibreChat?color=blue&label=Release%20v1.0.9" alt="Latest Release">
   </a>
   <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20Android-green" alt="Platforms">
   <img src="https://img.shields.io/badge/Backend-Embedded%20MongoDB%20%7C%20On--Device%20SQLite-purple" alt="Databases">
@@ -115,21 +115,21 @@ For users who want access to every tool and modality that LLM Gateway offers:
 
 ## 📥 Download Pre-Compiled Binaries
 
-Download the ready-to-run release files from [**GitHub Releases v1.0.8**](https://github.com/nekohacker591/LibreChat/releases/tag/v1.0.8):
+Download the ready-to-run release files from [**GitHub Releases v1.0.9**](https://github.com/nekohacker591/LibreChat/releases/tag/v1.0.9):
 
 | Artifact | File Name | Size | Target Platform | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Android APK** | [**`LibreChat-v1.0.8-release.apk`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.8/LibreChat-v1.0.8-release.apk) | ~12.6 MB | Android 8.0+ | Standalone APK with on-device HTTP server, SQLite, OpenCode Go & Zen, and DevPass integration. |
-| **Desktop Installer** | [**`LibreChat-Setup-1.0.5.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.8/LibreChat-Setup-1.0.5.exe) | ~79.0 MB | Windows 10 / 11 (x64) | Full desktop installer with embedded MongoDB and background auto-updater. |
-| **Desktop Portable** | [**`LibreChat-1.0.5.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.8/LibreChat-1.0.5.exe) | ~78.8 MB | Windows 10 / 11 (x64) | Standalone portable executable. Requires no installation. |
-| **Update Manifest** | [`latest.yml`](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.8/latest.yml) | 346 B | Auto-Updater | Differential update hash and release manifest. |
+| **Android APK** | [**`LibreChat-v1.0.9-release.apk`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.9/LibreChat-v1.0.9-release.apk) | ~12.6 MB | Android 8.0+ | Standalone APK with on-device HTTP server, SQLite, OpenCode Go & Zen, and DevPass integration. |
+| **Desktop Installer** | [**`LibreChat-Setup-1.0.5.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.9/LibreChat-Setup-1.0.5.exe) | ~79.0 MB | Windows 10 / 11 (x64) | Full desktop installer with embedded MongoDB and background auto-updater. |
+| **Desktop Portable** | [**`LibreChat-1.0.5.exe`**](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.9/LibreChat-1.0.5.exe) | ~78.8 MB | Windows 10 / 11 (x64) | Standalone portable executable. Requires no installation. |
+| **Update Manifest** | [`latest.yml`](https://github.com/nekohacker591/LibreChat/releases/download/v1.0.9/latest.yml) | 346 B | Auto-Updater | Differential update hash and release manifest. |
 
 ---
 
 ## 🚀 Quick Start Guide
 
 ### Android
-1. **Download & Install**: Grab `LibreChat-v1.0.8-release.apk` and install it on your device (tap **Install anyway** if prompted by Play Protect).
+1. **Download & Install**: Grab `LibreChat-v1.0.9-release.apk` and install it on your device (tap **Install anyway** if prompted by Play Protect).
 2. **Launch & Choose Mode**:
    - **On-Device Server (Default)**: Runs 100% on the phone without any desktop connection required.
    - **Connect to PC Server**: Connect over your local Wi-Fi to LibreChat Desktop running on your PC.
