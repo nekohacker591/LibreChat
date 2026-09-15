@@ -97,6 +97,19 @@ jest.mock('~/hooks/Input/useSelectMention', () => ({
   default: () => ({ onSelectEndpoint: jest.fn(), onSelectSpec: jest.fn() }),
 }));
 
+/** The panel's large new-chat button pulls in the real chat-reset pipeline;
+ *  only its click handler matters here. */
+jest.mock('~/hooks/Chat/useNewChat', () => ({
+  __esModule: true,
+  default: () => ({ handleNewChatClick: jest.fn(), startNewChat: jest.fn() }),
+}));
+
+jest.mock('~/hooks/useKeyboardShortcuts', () => ({
+  __esModule: true,
+  useShortcutAriaKey: () => undefined,
+  useShortcutHint: (_id: unknown, label: string) => label,
+}));
+
 jest.mock('~/components/Conversations', () => {
   const { memo } = jest.requireActual('react');
   const ConversationsStub = memo(function ConversationsStub() {

@@ -21,6 +21,7 @@ import ChatFilterMenu from '~/components/Conversations/ChatFilterMenu';
 import PinnedSection from '~/components/Conversations/PinnedSection';
 import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import { Conversations } from '~/components/Conversations';
+import NewChatButtonLarge from './NewChatButtonLarge';
 import { collectPinnedConversations } from '~/utils';
 import SearchBar from '~/components/Nav/SearchBar';
 import store from '~/store';
@@ -166,6 +167,13 @@ const ConversationsSection = memo(() => {
       role="region"
       aria-label={localize('com_ui_chat_history')}
     >
+      {/* The panel's primary action sits above everything it creates. Small
+          screens keep their thumb-reachable footer button instead. */}
+      {!isSmallScreen && (
+        <div className="flex items-center px-3 pb-1.5">
+          <NewChatButtonLarge />
+        </div>
+      )}
       {/* The search field owns this row alone; filtering and ordering moved beside the
           Chats heading, where the list they act on is labelled. On mobile the field
           itself lives in the drawer's bottom bar, within thumb reach. */}

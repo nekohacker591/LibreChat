@@ -111,38 +111,47 @@ interface ChatsHeaderProps {
   trailing?: ReactNode;
   /** Drop-target affordance while a project conversation is dragged over the section. */
   highlight?: boolean;
+  /** Rows currently listed, shown beside the heading as a quiet counter. */
+  count?: number;
 }
 
 /** Collapsible header for the Chats section */
-const ChatsHeader: FC<ChatsHeaderProps> = memo(({ isExpanded, onToggle, trailing, highlight }) => {
-  const localize = useLocalize();
+const ChatsHeader: FC<ChatsHeaderProps> = memo(
+  ({ isExpanded, onToggle, trailing, highlight, count }) => {
+    const localize = useLocalize();
 
-  return (
-    <div
-      className={cn(
-        'flex h-8 w-full items-center pr-2',
-        highlight && 'rounded-lg bg-surface-active-alt',
-      )}
-    >
-      <button
-        onClick={onToggle}
-        className={cn(buttonVariants({ variant: 'section-header' }), 'group min-w-0 flex-1')}
-        type="button"
-        aria-expanded={isExpanded}
+    return (
+      <div
+        className={cn(
+          'flex h-8 w-full items-center pr-2',
+          highlight && 'rounded-lg bg-surface-active-alt',
+        )}
       >
-        <span className="select-none truncate">{localize('com_ui_chats')}</span>
-        <ChevronDown
-          className={cn(
-            'h-3 w-3 shrink-0 transition-transform duration-200',
-            isExpanded ? '' : '-rotate-90',
+        <button
+          onClick={onToggle}
+          className={cn(buttonVariants({ variant: 'section-header' }), 'group min-w-0 flex-1')}
+          type="button"
+          aria-expanded={isExpanded}
+        >
+          <span className="select-none truncate">{localize('com_ui_chats')}</span>
+          {typeof count === 'number' && count > 0 && (
+            <span className="ml-1 shrink-0 rounded-md bg-surface-hover px-1.5 text-xs leading-4 text-text-secondary">
+              {count}
+            </span>
           )}
-          aria-hidden="true"
-        />
-      </button>
-      {trailing}
-    </div>
-  );
-});
+          <ChevronDown
+            className={cn(
+              'h-3 w-3 shrink-0 transition-transform duration-200',
+              isExpanded ? '' : '-rotate-90',
+            )}
+            aria-hidden="true"
+          />
+        </button>
+        {trailing}
+      </div>
+    );
+  },
+);
 
 ChatsHeader.displayName = 'ChatsHeader';
 
@@ -547,6 +556,7 @@ const Conversations: FC<ConversationsProps> = ({
           onToggle={() => setIsChatsExpanded(!isChatsExpanded)}
           trailing={chatsHeaderTrailing}
           highlight={isDropOver && canDrop}
+          count={filteredConversations.length}
         />
       </div>
       {body}

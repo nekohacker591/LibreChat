@@ -43,7 +43,9 @@ export default function Scrim({
         /** Inset: the shell is overflow-hidden, and the shared ring's offset
          *  puts it 2px outside the box, which the shell would clip. */
         'focus-visible:ring-inset focus-visible:ring-offset-0',
-        !expanded && 'pointer-events-none',
+        /** Held while the drawer animates closed, not just while open: a tap in
+         *  that window would otherwise reach a control on the pane sliding past. */
+        !expanded && !isSliding && 'pointer-events-none',
       )}
       style={{
         zIndex: DRAWER_Z_INDEX - 1,
@@ -51,7 +53,7 @@ export default function Scrim({
          *  at animation start) is not interrupted when Recoil commits the
          *  matching value three frames later. */
         opacity: expanded ? 1 : 0,
-        pointerEvents: expanded ? 'auto' : 'none',
+        pointerEvents: expanded || isSliding ? 'auto' : 'none',
         transition: prefersReducedMotion ? undefined : `opacity ${TRANSITION_MS}ms ${EASING}`,
       }}
     />
