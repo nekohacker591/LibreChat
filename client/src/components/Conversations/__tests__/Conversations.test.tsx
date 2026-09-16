@@ -62,6 +62,12 @@ jest.mock('~/store', () => {
 jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => key,
   useElementSize: () => ({ ref: jest.fn(), width: 300, height: 600 }),
+  useOuterScrollWindow: () => ({
+    ref: jest.fn(),
+    height: 600,
+    scrollTop: 0,
+    isOnScreen: () => true,
+  }),
   TranslationKeys: {},
 }));
 
@@ -76,6 +82,7 @@ jest.mock('@librechat/client', () => ({
 jest.mock('~/data-provider', () => ({
   useActiveJobs: () => ({ data: undefined }),
   useAssignConversationToProjectMutation: () => ({ mutate: jest.fn() }),
+  usePinConversationMutation: () => ({ mutate: jest.fn() }),
 }));
 
 jest.mock('~/utils', () => ({
@@ -125,6 +132,8 @@ describe('Conversations: pinned chats live in PinnedSection', () => {
               isSearchLoading={false}
               isChatsExpanded={true}
               setIsChatsExpanded={jest.fn()}
+              scrollViewport={null}
+              scrollContent={null}
             />
           </RecoilRoot>
         </DndProvider>
@@ -179,6 +188,8 @@ describe('Conversations: all-pin pages still paginate', () => {
               isChatsExpanded={isChatsExpanded}
               setIsChatsExpanded={jest.fn()}
               hasNextPage={hasNextPage}
+              scrollViewport={null}
+              scrollContent={null}
             />
           </RecoilRoot>
         </DndProvider>
@@ -255,6 +266,8 @@ describe('Conversations: all-pin pages still paginate', () => {
               isSearchLoading={false}
               isChatsExpanded={true}
               setIsChatsExpanded={jest.fn()}
+              scrollViewport={null}
+              scrollContent={null}
             />
           </RecoilRoot>
         </DndProvider>
@@ -274,6 +287,8 @@ describe('Conversations: all-pin pages still paginate', () => {
               isSearchLoading={false}
               isChatsExpanded={true}
               setIsChatsExpanded={jest.fn()}
+              scrollViewport={null}
+              scrollContent={null}
             />
           </RecoilRoot>
         </DndProvider>

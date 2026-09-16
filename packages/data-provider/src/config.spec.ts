@@ -2,6 +2,8 @@ import type { TEndpointsConfig } from './types';
 import {
   allowedAddressesSchema,
   agentsEndpointSchema,
+  DEFAULT_RETAINED_ANSWER_TOKENS,
+  DEFAULT_MAX_RETAINED_TOOL_COUNT_CHARS,
   bedrockModels,
   configSchema,
   excludedKeys,
@@ -21,6 +23,47 @@ const endpointsConfig: TEndpointsConfig = {
   'Some Endpoint': { type: EModelEndpoint.custom, userProvide: false, order: 9999 },
   Gemini: { type: EModelEndpoint.custom, userProvide: false, order: 9999 },
 };
+
+describe('ask user retained answers', () => {
+  it('leaves the block unconfigured by default and accepts an operator budget', () => {
+    expect(agentsEndpointSchema.parse({}).askUserQuestion).toBeUndefined();
+    expect(
+      agentsEndpointSchema.parse({
+        askUserQuestion: { retainedAnswers: { enabled: false, maxTokens: 2048 } },
+      }).askUserQuestion,
+    ).toEqual({ retainedAnswers: { enabled: false, maxTokens: 2048 } });
+    expect(DEFAULT_RETAINED_ANSWER_TOKENS).toBe(4096);
+  });
+
+  it('rejects a budget that is not a positive integer', () => {
+    for (const maxTokens of [0, -1, 1.5, '2048']) {
+      expect(
+        agentsEndpointSchema.safeParse({ askUserQuestion: { retainedAnswers: { maxTokens } } })
+          .success,
+      ).toBe(false);
+    }
+  });
+});
+
+describe('retained tool-count ceiling', () => {
+  it('ships the exact-count budget a deployment can raise or lower', () => {
+    /** The save path tokenizes a stopped turn's retained tool results to add an
+     *  exact figure to the context gauge; this bounds that work. */
+    expect(agentsEndpointSchema.parse({}).maxRetainedToolCountChars).toBe(
+      DEFAULT_MAX_RETAINED_TOOL_COUNT_CHARS,
+    );
+    expect(
+      agentsEndpointSchema.parse({ maxRetainedToolCountChars: 1_048_576 })
+        .maxRetainedToolCountChars,
+    ).toBe(1_048_576);
+    /** Zero withholds the figure entirely; a fraction of a character is nonsense. */
+    expect(
+      agentsEndpointSchema.parse({ maxRetainedToolCountChars: 0 }).maxRetainedToolCountChars,
+    ).toBe(0);
+    expect(agentsEndpointSchema.safeParse({ maxRetainedToolCountChars: -1 }).success).toBe(false);
+    expect(agentsEndpointSchema.safeParse({ maxRetainedToolCountChars: 1.5 }).success).toBe(false);
+  });
+});
 
 describe('run-scoped subagent file sharing config', () => {
   it('preserves the opt-in default for existing configurations', () => {

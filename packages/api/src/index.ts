@@ -3,6 +3,7 @@ export * from './acl/accessControlService';
 export * from './acl/insightsPermissions';
 export * from './acl/middleware';
 export * from './acl/principals';
+export * from './acl/search';
 export * from './credentials';
 /* Artifacts */
 export * from './artifacts';
@@ -105,6 +106,8 @@ export * from './traces';
 export * from './insights';
 /* Cache */
 export * from './cache';
+/* Cluster */
+export * from './cluster';
 /* Shared Links */
 export * from './shared-links/access';
 export * from './shared-links/service';

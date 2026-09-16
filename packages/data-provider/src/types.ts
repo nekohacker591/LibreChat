@@ -21,13 +21,15 @@ import type {
   CodeEnvironmentUserSettings,
   TAgentsEndpoint,
 } from './config';
-import type { Agent, EToolResources, StatefulCodeEnvironment } from './types/assistants';
+import type { StatefulCodeEnvironment } from './stateful-code';
 import type { CodeApprovalMode } from './code/approval';
+import type { EToolResources } from './types/tools';
 import type { RefillIntervalUnit } from './balance';
 import type { SettingDefinition } from './generate';
 import type { TMinimalFeedback } from './feedback';
 import type { ContentTypes } from './types/runs';
 import type { ProviderId } from './providers';
+import type { Agent } from './types/agents';
 
 export * from './schemas';
 export * from './types/subagents';
@@ -475,6 +477,9 @@ export type TPinConversationResponse = TConversation;
 export type TSharedMessagesResponse = Omit<TSharedLink, 'messages'> & {
   messages: TMessage[];
   langfuseSessionUrl?: string;
+  /** Whether the link was published with a configured sender label; withholds the
+   * model on hover. */
+  hasConfiguredSender?: boolean;
 };
 
 export type TCreateShareLinkRequest = Pick<TConversation, 'conversationId'>;
@@ -607,6 +612,20 @@ export type TCodeEnvironmentStatusResponse = {
   runtimes?: string[];
   operations?: CodeWorkspaceOperation[];
   workspaces?: CodeWorkspaceDescriptor[];
+};
+
+/** Moves a sealed attached decision onto the environments a conversation's agents now use. */
+export type TCodeEnvironmentMoveRequest = {
+  conversationId: string;
+  /** The persisted selections being replaced; a mismatch rejects the move as stale. */
+  from: CodeWorkspaceSelection[];
+  to: CodeWorkspaceSelection[];
+};
+
+export type TCodeEnvironmentMoveResponse = {
+  conversationId: string;
+  codeEnvironmentMode: 'attached';
+  codeWorkspaces: CodeWorkspaceSelection[];
 };
 
 export type TConfig = {
