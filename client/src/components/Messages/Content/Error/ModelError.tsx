@@ -4,7 +4,7 @@ import {
   isCodeWorkspaceSelectionErrorReason,
 } from 'librechat-data-provider';
 import type { ErrorRendererProps } from './parts';
-import { getProviderName, readNumber, readString, useErrorEndpoint } from './parts';
+import { ErrorBody, getProviderName, readNumber, readString, useErrorEndpoint } from './parts';
 import { codeWorkspaceErrorKeys } from '~/utils/errors';
 import { useLocalize } from '~/hooks';
 
@@ -52,7 +52,22 @@ export default function ModelError({ json, message }: ErrorRendererProps) {
 
   /** Provider-neutral, matching the sentence the server persists as the failure's own text. */
   const status = readNumber(json, 'status');
-  return status != null
-    ? localize('com_error_upstream_model_status', { 0: status })
-    : localize('com_error_upstream_model');
+  if (status == null) {
+    return localize('com_error_upstream_model');
+  }
+
+  const headline = localize('com_error_upstream_model_status', { 0: status });
+  if (status < 500) {
+    return headline;
+  }
+
+  /** A 5xx is the provider failing, not the request being refused, so the copy names the two
+   *  things a reader can act on: retrying, and the attachment a model may not accept — an image
+   *  sent to a text-only model surfaces as this same 500 on every attempt. */
+  return (
+    <ErrorBody>
+      <div>{headline}</div>
+      <div>{localize('com_error_upstream_model_server_hint')}</div>
+    </ErrorBody>
+  );
 }

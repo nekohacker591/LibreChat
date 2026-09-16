@@ -1,6 +1,6 @@
 {
   "name": "librechat-desktop",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "LibreChat Desktop Application Wrapper with Auto-Update",
   "main": "main.js",
   "author": "LibreChat Community",

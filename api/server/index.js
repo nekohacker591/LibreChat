@@ -1,3 +1,4 @@
+require('./utils/slowBufferCompat');
 require('../config/credentials');
 
 const telemetry = require('./telemetry');

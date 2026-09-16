@@ -24,6 +24,11 @@ const RESERVED_REQUEST_LOG_CONTEXT_KEYS = new Set<string>([
   'request_path',
 ]);
 
+/** Safe failure metadata attached by the error observers. These carry no provider content, only
+ *  the classification of a failure (status code, error code, origin, type), so the non-JSON console
+ *  transport renders them instead of dropping the diagnosis the caller passed in. */
+const ERROR_LOG_CONTEXT_KEYS = ['status', 'errorCode', 'errorOrigin', 'errorType'] as const;
+
 const STRUCTURED_EVENT_LOG_CONTEXT_KEYS = [
   'event_name',
   'tenant_id',
@@ -56,10 +61,12 @@ const STRUCTURED_EVENT_LOG_CONTEXT_KEYS = [
 
 type LogContextKey =
   | (typeof REQUEST_LOG_CONTEXT_KEYS)[number]
+  | (typeof ERROR_LOG_CONTEXT_KEYS)[number]
   | (typeof STRUCTURED_EVENT_LOG_CONTEXT_KEYS)[number];
 
 const LOG_CONTEXT_KEYS: readonly LogContextKey[] = [
   ...REQUEST_LOG_CONTEXT_KEYS,
+  ...ERROR_LOG_CONTEXT_KEYS,
   ...STRUCTURED_EVENT_LOG_CONTEXT_KEYS,
 ];
 

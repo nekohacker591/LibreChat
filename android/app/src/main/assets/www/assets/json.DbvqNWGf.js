@@ -1,1 +1,0 @@
-function e(e){try{JSON.parse(e)}catch{return!1}return!0}function t(e){try{return JSON.stringify(JSON.parse(e),null,2)}catch{return e}}function n(e){let t=0,n=-1;for(let r=0;r<e.length;r++)if(e[r]===`{`)t===0&&(n=r),t++;else if(e[r]===`}`&&(t--,t===0&&n!==-1))return e.slice(n,r+1);return``}export{t as n,e as r,n as t};

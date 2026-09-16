@@ -533,6 +533,7 @@
   "com_error_unknown": "This response failed and the provider did not report a reason.",
   "com_error_upstream_model": "The model provider could not complete this request.",
   "com_error_upstream_model_status": "The model provider could not complete this request (status {{0}}).",
+  "com_error_upstream_model_server_hint": "This is usually a temporary provider failure. Try again; if you attached an image or file, retry without it or switch to a model that accepts it.",
   "com_error_user_key_add": "Add your key",
   "com_error_user_key_update": "Update your key",
   "com_error_user_url_add": "Add your URL",

@@ -133,3 +133,25 @@ describe('attachRequestContext', () => {
       expect(formatLogContext(result)).not.toContain('/unsafe/concrete/path');
     }));
 });
+
+describe('error diagnostics in the rendered context', () => {
+  it('renders the safe failure metadata the error observers attach', () => {
+    const rendered = formatLogContext({
+      level: 'error',
+      message: 'Upstream model error',
+      status: 500,
+      errorCode: 'UPSTREAM_MODEL_ERROR',
+      errorOrigin: 'model_provider',
+      errorType: '500',
+    });
+
+    expect(rendered).toContain('"status":500');
+    expect(rendered).toContain('"errorCode":"UPSTREAM_MODEL_ERROR"');
+    expect(rendered).toContain('"errorOrigin":"model_provider"');
+    expect(rendered).toContain('"errorType":"500"');
+  });
+
+  it('leaves the diagnostics out when the record carries none', () => {
+    expect(formatLogContext({ level: 'info', message: 'plain' })).not.toContain('"status"');
+  });
+});

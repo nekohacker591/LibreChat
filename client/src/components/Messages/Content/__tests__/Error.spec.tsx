@@ -384,7 +384,20 @@ describe('Error — provider and model identity', () => {
     expect(
       screen.getByText(localized('com_error_upstream_model_status', '529')),
     ).toBeInTheDocument();
+    /** A 5xx gets the actionable hint; a refusal status does not pretend to be one. */
+    expect(screen.getByText(catalog.com_error_upstream_model_server_hint)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('OpenAI');
+  });
+
+  it('leaves the retry hint off a 4xx provider response', () => {
+    renderError({ type: ErrorTypes.UPSTREAM_MODEL_ERROR, status: 400 }, providerMessage);
+
+    expect(
+      screen.getByText(localized('com_error_upstream_model_status', '400')),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(catalog.com_error_upstream_model_server_hint),
+    ).not.toBeInTheDocument();
   });
 
   it.each([
