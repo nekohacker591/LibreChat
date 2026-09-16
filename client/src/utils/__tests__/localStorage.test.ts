@@ -1,5 +1,10 @@
-import { LocalStorageKeys } from 'librechat-data-provider';
-import { clearAllConversationStorage, clearLocalStorage } from '../localStorage';
+import { Constants, LocalStorageKeys } from 'librechat-data-provider';
+import {
+  carryConvoToolToggles,
+  clearAllConversationStorage,
+  clearLocalStorage,
+} from '../localStorage';
+import { setTimestampedValue } from '../timestamps';
 
 describe('clearAllConversationStorage', () => {
   beforeEach(() => {
@@ -59,5 +64,57 @@ describe('clearLocalStorage', () => {
 
     expect(localStorage.getItem(`${LocalStorageKeys.FILES_DRAFT}new:0`)).toBeNull();
     expect(localStorage.getItem(`${LocalStorageKeys.TEXT_DRAFT}new:0`)).toBeNull();
+  });
+});
+
+describe('carryConvoToolToggles', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  const webSearchKey = (suffix: string) => `${LocalStorageKeys.LAST_WEB_SEARCH_TOGGLE_}${suffix}`;
+  const mcpKey = (suffix: string) => `${LocalStorageKeys.LAST_MCP_}${suffix}`;
+
+  it('copies the outgoing conversation toggles onto the new-chat defaults', () => {
+    setTimestampedValue(webSearchKey('convo-1'), JSON.stringify(true));
+    setTimestampedValue(mcpKey('convo-1'), JSON.stringify(['server-a']));
+
+    carryConvoToolToggles('convo-1');
+
+    expect(localStorage.getItem(webSearchKey(Constants.NEW_CONVO))).toBe('true');
+    expect(localStorage.getItem(mcpKey(Constants.NEW_CONVO))).toBe('["server-a"]');
+    expect(localStorage.getItem(`${webSearchKey(Constants.NEW_CONVO)}_TIMESTAMP`)).not.toBeNull();
+  });
+
+  /** A conversation that already is new owns those keys itself; there is nothing to copy. */
+  it('leaves the defaults alone when the conversation already is new', () => {
+    setTimestampedValue(webSearchKey(Constants.NEW_CONVO), JSON.stringify(false));
+
+    carryConvoToolToggles(Constants.NEW_CONVO);
+    carryConvoToolToggles(undefined);
+    carryConvoToolToggles('');
+
+    expect(localStorage.getItem(webSearchKey(Constants.NEW_CONVO))).toBe('false');
+  });
+
+  it('leaves a toggle the conversation never set untouched', () => {
+    setTimestampedValue(webSearchKey('convo-1'), JSON.stringify(true));
+
+    carryConvoToolToggles('convo-1');
+
+    expect(
+      localStorage.getItem(`${LocalStorageKeys.LAST_CODE_TOGGLE_}${Constants.NEW_CONVO}`),
+    ).toBeNull();
+  });
+
+  /** An expired toggle is not a preference, and copying it would resurrect it for two days. */
+  it('skips a toggle whose value expired', () => {
+    const staleKey = webSearchKey('convo-1');
+    localStorage.setItem(staleKey, JSON.stringify(true));
+    localStorage.setItem(`${staleKey}_TIMESTAMP`, String(Date.now() - 3 * 24 * 60 * 60 * 1000));
+
+    carryConvoToolToggles('convo-1');
+
+    expect(localStorage.getItem(webSearchKey(Constants.NEW_CONVO))).toBeNull();
   });
 });

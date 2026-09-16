@@ -27,10 +27,12 @@ import type { AssistantListItem } from '~/common';
 import {
   updateLastSelectedModel,
   getLocalStorageItems,
+  getPriorConvoSetup,
   getDefaultModelSpec,
   getDefaultEndpoint,
   getModelSpecPreset,
   hasModelSelection,
+  carryConvoToolToggles,
   buildDefaultConvo,
   requestChatFocus,
   renewNewConversationDraftToken,
@@ -231,7 +233,14 @@ const useNewConvo = (index = 0) => {
           const defaultParamsEndpoint = getDefaultParamsEndpoint(endpointsConfig, defaultEndpoint);
           conversation = buildDefaultConvo({
             conversation,
-            lastConversationSetup: activePreset as TConversation,
+            /** A preset (or the default model spec) decides first; without one the new chat
+             * keeps the composer setup of the conversation just left, provided it was on the
+             * same endpoint, so params like the reasoning level survive New Chat. */
+            lastConversationSetup: getPriorConvoSetup({
+              activePreset: activePreset as TConversation | null | undefined,
+              storedSetup: lastConversationSetup,
+              endpoint: defaultEndpoint,
+            }),
             endpoint: defaultEndpoint,
             models,
             defaultParamsEndpoint,
@@ -395,6 +404,20 @@ const useNewConvo = (index = 0) => {
         prevConvoId: prevConversation?.conversationId,
         prevSpecName: prevConversation?.spec,
       });
+
+      /** New chats read their composer toggles back from `new`-suffixed storage, so the
+       * conversation being left has to hand its values over or web search and friends reset.
+       * Model spec deployments are left alone: their new chats read the admin defaults key
+       * instead, and the spec is meant to be applied fresh. */
+      const hasModelSpecs = (startupConfig?.modelSpecs?.list?.length ?? 0) > 0;
+      if (
+        conversation.conversationId === Constants.NEW_CONVO &&
+        !modelsData &&
+        !keepComposerState &&
+        !hasModelSpecs
+      ) {
+        carryConvoToolToggles(prevConversation?.conversationId);
+      }
 
       if (
         conversation.conversationId === Constants.NEW_CONVO &&

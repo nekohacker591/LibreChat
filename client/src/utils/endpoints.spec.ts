@@ -1,8 +1,9 @@
 import { EModelEndpoint, getEndpointField } from 'librechat-data-provider';
-import type { TEndpointsConfig, TConfig, TModelSpec } from 'librechat-data-provider';
+import type { TConfig, TModelSpec, TConversation, TEndpointsConfig } from 'librechat-data-provider';
 import {
   getAvailableEndpoints,
   getEndpointsFilter,
+  getPriorConvoSetup,
   getSpecAgentAvatarURL,
   mapEndpoints,
   normalizeModelSpecs,
@@ -146,5 +147,82 @@ describe('getSpecAgentAvatarURL', () => {
   it('returns undefined for an unknown or absent agent', () => {
     expect(getSpecAgentAvatarURL(agentSpec('missing'), agentsMap)).toBeUndefined();
     expect(getSpecAgentAvatarURL(agentSpec(undefined), agentsMap)).toBeUndefined();
+  });
+});
+
+describe('getPriorConvoSetup', () => {
+  const storedSetup = {
+    conversationId: 'convo-1',
+    endpoint: 'OpenCode Go',
+    endpointType: EModelEndpoint.custom,
+    model: 'mimo-v2.5-pro',
+    reasoning_effort: 'high',
+    temperature: 0.7,
+    max_tokens: 2000,
+    spec: 'some-spec',
+    iconURL: 'some-icon.png',
+    chatProjectId: 'project-1',
+    agent_id: 'convo-1::web_search',
+    assistant_id: 'asst_1',
+    disableParams: true,
+  } as unknown as Partial<TConversation>;
+
+  it('prefers an active preset over the stored setup', () => {
+    const preset = { endpoint: 'OpenCode Go', model: 'preset-model' } as unknown as TConversation;
+
+    expect(getPriorConvoSetup({ activePreset: preset, storedSetup, endpoint: 'OpenCode Go' })).toBe(
+      preset,
+    );
+  });
+
+  it('carries the params of a stored setup on the same endpoint', () => {
+    const setup = getPriorConvoSetup({ storedSetup, endpoint: 'OpenCode Go' });
+
+    expect(setup).toMatchObject({
+      endpoint: 'OpenCode Go',
+      model: 'mimo-v2.5-pro',
+      reasoning_effort: 'high',
+      temperature: 0.7,
+      max_tokens: 2000,
+    });
+  });
+
+  /** Selection and scope fields belong to the conversation being left, not to its params. */
+  it('drops identity and spec fields from the carried setup', () => {
+    const setup = getPriorConvoSetup({ storedSetup, endpoint: 'OpenCode Go' }) ?? {};
+
+    expect(setup).not.toHaveProperty('spec');
+    expect(setup).not.toHaveProperty('iconURL');
+    expect(setup).not.toHaveProperty('chatProjectId');
+    expect(setup).not.toHaveProperty('conversationId');
+    expect(setup).not.toHaveProperty('agent_id');
+    expect(setup).not.toHaveProperty('assistant_id');
+    expect(setup).not.toHaveProperty('disableParams');
+  });
+
+  it('ignores a stored setup left behind by another endpoint', () => {
+    expect(getPriorConvoSetup({ storedSetup, endpoint: EModelEndpoint.openAI })).toBeNull();
+  });
+
+  it('returns null without a stored setup, endpoint, or setup endpoint', () => {
+    expect(getPriorConvoSetup({ endpoint: 'OpenCode Go' })).toBeNull();
+    expect(getPriorConvoSetup({ storedSetup })).toBeNull();
+    expect(getPriorConvoSetup({ storedSetup: {}, endpoint: 'OpenCode Go' })).toBeNull();
+  });
+
+  /** Agents and assistants resolve their own selection through dedicated storage. */
+  it('excludes agents and assistants', () => {
+    expect(
+      getPriorConvoSetup({
+        storedSetup: { ...storedSetup, endpoint: EModelEndpoint.agents },
+        endpoint: EModelEndpoint.agents,
+      }),
+    ).toBeNull();
+    expect(
+      getPriorConvoSetup({
+        storedSetup: { ...storedSetup, endpoint: EModelEndpoint.assistants },
+        endpoint: EModelEndpoint.assistants,
+      }),
+    ).toBeNull();
   });
 });

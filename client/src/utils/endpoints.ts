@@ -395,6 +395,50 @@ export function applyModelSpecEphemeralAgent({
 }
 
 /**
+ * The conversation setup a new chat inherits when no preset applies: the stored
+ * `LAST_CONVO_SETUP_0` of the conversation being left, but only when it belongs to the
+ * endpoint the new chat is built for. Its params (reasoning effort, temperature, max
+ * tokens, ...) then survive the New Chat button instead of resetting to the endpoint
+ * schema, the way the model and tools already do.
+ *
+ * The endpoint match is what keeps an endpoint switch from bleeding one endpoint's
+ * settings into another. Agents and assistants are left out because they resolve their own
+ * selection (agent id, assistant id) through dedicated storage, and the spec/icon/scope
+ * fields are dropped so a stale selection cannot ride along: a spec that still exists in
+ * the config would have produced a preset, and one that does not must not label the new
+ * chat.
+ */
+export function getPriorConvoSetup({
+  activePreset,
+  storedSetup,
+  endpoint,
+}: {
+  activePreset?: t.TConversation | null;
+  storedSetup?: Partial<t.TConversation> | null;
+  endpoint?: EModelEndpoint | string | null;
+}): t.TConversation | null {
+  if (activePreset) {
+    return activePreset;
+  }
+  if (!endpoint || !storedSetup || storedSetup.endpoint !== endpoint) {
+    return null;
+  }
+  if (isAgentsEndpoint(endpoint) || isAssistantsEndpoint(endpoint)) {
+    return null;
+  }
+
+  const params: Partial<t.TConversation> = { ...storedSetup };
+  delete params.spec;
+  delete params.iconURL;
+  delete params.chatProjectId;
+  delete params.conversationId;
+  delete params.agent_id;
+  delete params.assistant_id;
+  delete params.disableParams;
+  return params as t.TConversation;
+}
+
+/**
  * Resolves the default model spec for a new chat. Priority: hard admin default →
  * the most recent conversation's own selection → soft default → legacy first spec.
  *

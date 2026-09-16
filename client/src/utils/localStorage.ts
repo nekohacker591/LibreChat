@@ -1,4 +1,5 @@
-import { LocalStorageKeys, TConversation, isUUID } from 'librechat-data-provider';
+import { Constants, LocalStorageKeys, TConversation, isUUID } from 'librechat-data-provider';
+import { getTimestampedValue, setTimestampedValue } from './timestamps';
 
 export function getLocalStorageItems() {
   const items = {
@@ -102,4 +103,36 @@ export function clearAllConversationStorage() {
       localStorage.removeItem(key);
     }
   });
+}
+
+/** Every composer toggle `BadgeRowContext` reads back for a new conversation. Keys are
+ * per-conversation; the copy new chats read lives under the `new` suffix. Pinned state
+ * rides a `_pinned` suffix this never matches. */
+const CONVO_TOGGLE_KEY_PREFIXES: LocalStorageKeys[] = [
+  LocalStorageKeys.LAST_CODE_TOGGLE_,
+  LocalStorageKeys.LAST_WEB_SEARCH_TOGGLE_,
+  LocalStorageKeys.LAST_FILE_SEARCH_TOGGLE_,
+  LocalStorageKeys.LAST_ARTIFACTS_TOGGLE_,
+  LocalStorageKeys.LAST_SKILLS_TOGGLE_,
+  LocalStorageKeys.LAST_MEMORY_TOGGLE_,
+  LocalStorageKeys.LAST_MCP_,
+];
+
+/** Carries the outgoing conversation's tool toggles onto the new-chat defaults, so a toggle
+ * flipped inside a conversation survives the New Chat button the way the model, params and
+ * tools do. A conversation that is already new owns those keys itself, so there is nothing to
+ * copy, and an expired value is skipped rather than resurrected: `getTimestampedValue` drops
+ * anything past the storage window because an expired toggle is not a preference. */
+export function carryConvoToolToggles(sourceConversationId?: string | null) {
+  const sourceKey = sourceConversationId || (Constants.NEW_CONVO as string);
+  if (sourceKey === Constants.NEW_CONVO) {
+    return;
+  }
+  for (const prefix of CONVO_TOGGLE_KEY_PREFIXES) {
+    const value = getTimestampedValue(`${prefix}${sourceKey}`);
+    if (value == null) {
+      continue;
+    }
+    setTimestampedValue(`${prefix}${Constants.NEW_CONVO}`, value);
+  }
 }

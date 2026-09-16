@@ -4,6 +4,8 @@ import type { TConversation } from 'librechat-data-provider';
 
 const mockDeleteFiles = jest.fn();
 const mockSetFiles = jest.fn();
+const mockCarryConvoToolToggles = jest.fn();
+const mockPrevConversationState: { current: TConversation | null } = { current: null };
 const mockRemoveTabAttachmentPresence = jest.fn();
 const mockCollectForeignAttachmentClaims = jest.fn(
   (_excludeDraftIds: string[], _excludeOwnPane?: number | 'tab') => new Set(mockForeignClaims),
@@ -58,6 +60,8 @@ jest.mock('librechat-data-provider', () => ({
 jest.mock('~/utils', () => ({
   updateLastSelectedModel: jest.fn(),
   getLocalStorageItems: () => ({}),
+  getPriorConvoSetup: jest.fn(() => null),
+  carryConvoToolToggles: (...args: unknown[]) => mockCarryConvoToolToggles(...args),
   getDefaultModelSpec: () => ({}),
   getDefaultEndpoint: () => undefined,
   getModelSpecPreset: jest.fn(),
@@ -90,7 +94,7 @@ jest.mock('../Conversations/useNavigateToConvo', () => ({
 }));
 jest.mock('../Conversations/useGetConversation', () => ({
   __esModule: true,
-  default: () => () => null,
+  default: () => () => mockPrevConversationState.current,
 }));
 jest.mock('../Assistants/useAssistantListMap', () => ({
   __esModule: true,
@@ -166,6 +170,7 @@ describe('clearInheritedAgentWorkspace', () => {
 describe('useNewConvo reset cleanup', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrevConversationState.current = null;
     mockDeleteFiles.mockResolvedValue({});
     mockForeignClaims.clear();
     mockMarkedPasteIds.clear();
@@ -227,5 +232,35 @@ describe('useNewConvo reset cleanup', () => {
 
     expect(mockStorePendingDiscardIds).toHaveBeenCalledWith(0, ['inflight-paste']);
     expect(mockPendingDiscardIds).toEqual(new Set(['inflight-paste']));
+  });
+});
+
+describe('useNewConvo composer carry-over', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrevConversationState.current = null;
+    mockFiles.clear();
+  });
+
+  it('hands the outgoing conversation toggles over to the new chat', () => {
+    mockPrevConversationState.current = { conversationId: 'convo-1' } as TConversation;
+    const { result } = renderHook(() => useNewConvo());
+
+    act(() => {
+      result.current.newConversation();
+    });
+
+    expect(mockCarryConvoToolToggles).toHaveBeenCalledWith('convo-1');
+  });
+
+  it('keeps the composer state of a re-rendered call untouched', () => {
+    mockPrevConversationState.current = { conversationId: 'convo-1' } as TConversation;
+    const { result } = renderHook(() => useNewConvo());
+
+    act(() => {
+      result.current.newConversation({ keepComposerState: true });
+    });
+
+    expect(mockCarryConvoToolToggles).not.toHaveBeenCalled();
   });
 });
