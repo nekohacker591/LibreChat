@@ -49,8 +49,18 @@ export function buildTokenConfigMap(
         tokenomics.context = context;
       }
 
+      /** Capability ceilings ride the fetched catalog regardless of pricing. */
+      const overrideRates = override?.[model];
+      if (overrideRates != null) {
+        if (typeof overrideRates.output === 'number') {
+          tokenomics.output = overrideRates.output;
+        }
+        if (typeof overrideRates.vision === 'boolean') {
+          tokenomics.vision = overrideRates.vision;
+        }
+      }
+
       if (includePricing) {
-        const overrideRates = override?.[model];
         if (overrideRates?.prompt != null || overrideRates?.completion != null) {
           tokenomics.prompt = overrideRates.prompt;
           tokenomics.completion = overrideRates.completion;

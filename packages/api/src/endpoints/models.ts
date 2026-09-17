@@ -57,6 +57,18 @@ export interface FetchModelsParams {
   skipCache?: boolean;
 }
 
+/** Catalog `type` values that must not reach the chat model menu. Unknown kinds are kept. */
+const NON_CHAT_CATALOG_TYPES = new Set([
+  'tts',
+  'audio',
+  'embedding',
+  'embeddings',
+  'image',
+  'video',
+  'moderation',
+  'rerank',
+]);
+
 function applyUserProvidedBaseURLProtection(
   options: AxiosRequestConfig,
   ssrfAgents?: SSRFSafeAgents,
@@ -178,6 +190,8 @@ export async function fetchModels({
     typeof baseURL === 'string' &&
     (baseURL.includes('llmgateway.io') ||
       baseURL.includes('opencode.ai') ||
+      /** Phoenix Grove serves its catalog without credentials, like the gateways above. */
+      baseURL.includes('pgsgrove.com') ||
       headers?.['x-source'] === 'opencode' ||
       headers?.['x-source'] === 'devpass-code');
 
@@ -327,7 +341,14 @@ export async function fetchModels({
         await cache.set(getModelCacheTokenConfigKey(cacheKey), endpointTokenConfig);
       }
     }
-    models = input.data.map((item: { id: string }) => item.id);
+    models = input.data
+      /** A catalog that declares kinds separates chat models from voices and embedding
+       *  models; an unknown kind is kept, only the known non-chat kinds are dropped. */
+      .filter(
+        (item: { type?: string }) =>
+          item.type == null || !NON_CHAT_CATALOG_TYPES.has(item.type.toLowerCase()),
+      )
+      .map((item: { id: string }) => item.id);
   } catch (error) {
     const logMessage = `Failed to fetch models from ${azure ? 'Azure ' : ''}${name} API`;
     logAxiosError({ message: logMessage, error: error as Error });

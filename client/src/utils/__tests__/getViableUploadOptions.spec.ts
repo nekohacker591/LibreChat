@@ -180,3 +180,52 @@ describe('getViableUploadOptions', () => {
     ]);
   });
 });
+
+describe('text-only catalog models (fetched modalities gate images)', () => {
+  const customCtx = (over: Partial<UploadOptionContext> = {}) =>
+    baseCtx({
+      provider: 'Phoenix Grove',
+      endpoint: 'Phoenix Grove',
+      endpointType: 'custom',
+      ...over,
+    });
+
+  it('blocks an image from provider attach when the catalog says text-only', () => {
+    expect(
+      getViableUploadOptions(
+        [file('image/png', 'shot.png')],
+        customCtx({ modelAcceptsImages: false }),
+      ),
+    ).toEqual([EToolResources.execute_code]);
+  });
+
+  it('keeps provider attach for an image the catalog declares vision-capable', () => {
+    expect(
+      getViableUploadOptions(
+        [file('image/png', 'shot.png')],
+        customCtx({ modelAcceptsImages: true }),
+      ),
+    ).toEqual([undefined, EToolResources.execute_code]);
+  });
+
+  it("keeps today's behavior when the catalog reports no modalities", () => {
+    expect(getViableUploadOptions([file('image/png', 'shot.png')], customCtx())).toEqual([
+      undefined,
+      EToolResources.execute_code,
+    ]);
+  });
+
+  it('does not block non-image files on a text-only model', () => {
+    expect(
+      getViableUploadOptions(
+        [file('application/pdf', 'doc.pdf')],
+        customCtx({ modelAcceptsImages: false }),
+      ),
+    ).toEqual([
+      undefined,
+      EToolResources.file_search,
+      EToolResources.execute_code,
+      EToolResources.context,
+    ]);
+  });
+});

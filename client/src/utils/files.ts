@@ -538,6 +538,9 @@ export type UploadOptionContext = {
   endpoint?: string | null;
   endpointType?: string | null;
   useResponsesApi?: boolean;
+  /** `false` when the selected model's fetched catalog declares text-only input;
+   *  `undefined` when the catalog says nothing, which keeps today's behavior. */
+  modelAcceptsImages?: boolean;
   fileSearchEnabled: boolean;
   codeEnabled: boolean;
   contextEnabled: boolean;
@@ -548,6 +551,12 @@ export type UploadOptionContext = {
 };
 
 const isProviderAttachType = (type: string, ctx: UploadOptionContext): boolean => {
+  /** Images a model cannot read must not be model-bound: the provider rejects the request
+   *  (some gateways answer with a 500) instead of ignoring the image. Other destinations
+   *  stay open — OCR and the code sandbox do not send the image to the model. */
+  if (ctx.modelAcceptsImages === false && type.startsWith('image/')) {
+    return false;
+  }
   let currentProvider = (ctx.provider || ctx.endpoint) ?? '';
   if (currentProvider.toLowerCase() === Providers.OPENROUTER) {
     currentProvider = Providers.OPENROUTER;

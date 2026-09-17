@@ -86,12 +86,14 @@ jest.mock('winston', () => ({
 
 const mockExtractLibreChatParams = jest.fn();
 const mockGetModelMaxTokens = jest.fn();
+const mockGetModelMaxOutputTokens = jest.fn();
 const mockOptionalChainWithEmptyCheck = jest.fn();
 const mockGetThreadData = jest.fn();
 
 jest.mock('~/utils', () => ({
   extractLibreChatParams: (...args: unknown[]) => mockExtractLibreChatParams(...args),
   getModelMaxTokens: (...args: unknown[]) => mockGetModelMaxTokens(...args),
+  getModelMaxOutputTokens: (...args: unknown[]) => mockGetModelMaxOutputTokens(...args),
   optionalChainWithEmptyCheck: (...args: unknown[]) => mockOptionalChainWithEmptyCheck(...args),
   getThreadData: (...args: unknown[]) => mockGetThreadData(...args),
 }));
@@ -156,8 +158,12 @@ function createMocks(overrides?: {
   maxContextTokens?: number;
   modelDefault?: number;
   maxOutputTokens?: number;
+  /** Simulates a provider whose LLM config carries no output parameter at all. */
+  omitOutputParams?: boolean;
   endpointTokenConfig?: EndpointTokenConfig;
   useRealTokenLookup?: boolean;
+  /** Exercises the real catalog lookup for the output ceiling. */
+  useRealOutputLookup?: boolean;
   providerTools?: unknown[];
   loadedToolDefinitions?: Array<{
     name: string;
@@ -173,8 +179,10 @@ function createMocks(overrides?: {
     maxContextTokens,
     modelDefault = 200000,
     maxOutputTokens = 4096,
+    omitOutputParams = false,
     endpointTokenConfig,
     useRealTokenLookup = false,
+    useRealOutputLookup = false,
     providerTools,
     loadedToolDefinitions = [],
     structuredTools = [],
@@ -198,7 +206,7 @@ function createMocks(overrides?: {
   const res = {} as unknown as import('express').Response;
 
   const mockGetOptions = jest.fn().mockResolvedValue({
-    llmConfig: { model, maxTokens: maxOutputTokens },
+    llmConfig: { model, ...(omitOutputParams ? {} : { maxTokens: maxOutputTokens }) },
     endpointTokenConfig,
     ...(providerTools !== undefined ? { tools: providerTools } : {}),
   } satisfies InitializeResultBase);
@@ -218,6 +226,12 @@ function createMocks(overrides?: {
     mockGetModelMaxTokens.mockImplementation(realUtils.getModelMaxTokens);
   } else {
     mockGetModelMaxTokens.mockReturnValue(modelDefault);
+  }
+
+  if (useRealOutputLookup) {
+    mockGetModelMaxOutputTokens.mockImplementation(realUtils.getModelMaxOutputTokens);
+  } else {
+    mockGetModelMaxOutputTokens.mockReturnValue(undefined);
   }
 
   // Real implementation: treats 0 as a valid (non-empty) value — load-bearing for the maxContextTokens=0 test
@@ -1715,6 +1729,34 @@ describe('initializeAgent — maxContextTokens', () => {
     );
 
     const expected = Math.round((modelDefault - maxOutputTokens) * 0.95);
+    expect(result.maxContextTokens).toBe(expected);
+  });
+
+  it('reserves the catalog output ceiling when no explicit output parameter is set', async () => {
+    const modelDefault = 200000;
+    const catalogOutput = 32768;
+    const { agent, req, res, loadTools, db } = createMocks({
+      maxContextTokens: undefined,
+      modelDefault,
+      omitOutputParams: true,
+      useRealOutputLookup: true,
+      endpointTokenConfig: { 'test-model': { context: modelDefault, output: catalogOutput } },
+    });
+
+    const result = await initializeAgent(
+      {
+        req,
+        res,
+        agent,
+        loadTools,
+        endpointOption: { endpoint: EModelEndpoint.agents },
+        allowedProviders: new Set([Providers.OPENAI]),
+        isInitialAgent: true,
+      },
+      db,
+    );
+
+    const expected = Math.round((modelDefault - catalogOutput) * 0.95);
     expect(result.maxContextTokens).toBe(expected);
   });
 

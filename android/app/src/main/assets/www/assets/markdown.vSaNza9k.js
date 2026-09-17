@@ -1,4 +1,4 @@
-import{r as e}from"./query-devtools.DMztAAKM.js";import{h as t}from"./tanstack-vendor.C7KMjzCe.js";import{Gm as n,Jh as r,Km as i,Ng as a,ug as o}from"./hooks.CECkMUrM.js";var s=n=>{let i=e(),{onSuccess:s,onError:c,onMutate:l,...u}=n??{},d={mutationFn:e=>a.editArtifact(e),onMutate:async e=>(l&&await l(e),{previousMessages:{},updatedConversationId:null}),onError:(e,t,n)=>{c?.(e,t,n)},onSuccess:(e,t,n)=>{let a=!0,c=n=>{n&&i.setQueryData([o.messages,n],n=>{if(!n)return n;let r=[...n],i;for(let e=r.length-1;e>=0;e--)if(r[e].messageId===t.messageId){i=e,a=!1;break}return i==null?n:(r[i]={...r[i],content:e.content,text:e.text},r)})};c(e.conversationId),a&&(console.warn("Edited Artifact Message not found in cache, trying `new` as `conversationId`"),c(r.NEW_CONVO)),s?.(e,t,n)},...u};return t(d)},c=(n,r)=>{let i=e(),{onSuccess:s,onError:c,onMutate:l,...u}=r??{},d={mutationFn:e=>a.branchMessage(e),onMutate:async e=>(l&&await l(e),n&&await i.cancelQueries([o.messages,n]),{previousMessages:n?i.getQueryData([o.messages,n]):void 0,conversationId:n}),onError:(e,t,n)=>{n?.conversationId&&n?.previousMessages&&i.setQueryData([o.messages,n.conversationId],n.previousMessages),c?.(e,t,n)},onSuccess:(e,t,n)=>{let r=e.conversationId||n?.conversationId;r&&i.setQueryData([o.messages,r],t=>t?[...t,e]:[e]),s?.(e,t,n)},...u};return t(d)},l=new Set([`http:`,`https:`,`mailto:`,`tel:`]),u=e=>{let t=e.trim();if(!t)return!1;if(t.startsWith(`/`)||t.startsWith(`#`)||t.startsWith(`.`))return!0;try{return l.has(new URL(t).protocol)}catch{return!1}},d=`
+import{r as e}from"./query-devtools.DMztAAKM.js";import{h as t}from"./tanstack-vendor.C7KMjzCe.js";import{Km as n,Pg as r,Yh as i,dg as a,qm as o}from"./hooks.DDGDc6UH.js";var s=n=>{let o=e(),{onSuccess:s,onError:c,onMutate:l,...u}=n??{},d={mutationFn:e=>r.editArtifact(e),onMutate:async e=>(l&&await l(e),{previousMessages:{},updatedConversationId:null}),onError:(e,t,n)=>{c?.(e,t,n)},onSuccess:(e,t,n)=>{let r=!0,c=n=>{n&&o.setQueryData([a.messages,n],n=>{if(!n)return n;let i=[...n],a;for(let e=i.length-1;e>=0;e--)if(i[e].messageId===t.messageId){a=e,r=!1;break}return a==null?n:(i[a]={...i[a],content:e.content,text:e.text},i)})};c(e.conversationId),r&&(console.warn("Edited Artifact Message not found in cache, trying `new` as `conversationId`"),c(i.NEW_CONVO)),s?.(e,t,n)},...u};return t(d)},c=(n,i)=>{let o=e(),{onSuccess:s,onError:c,onMutate:l,...u}=i??{},d={mutationFn:e=>r.branchMessage(e),onMutate:async e=>(l&&await l(e),n&&await o.cancelQueries([a.messages,n]),{previousMessages:n?o.getQueryData([a.messages,n]):void 0,conversationId:n}),onError:(e,t,n)=>{n?.conversationId&&n?.previousMessages&&o.setQueryData([a.messages,n.conversationId],n.previousMessages),c?.(e,t,n)},onSuccess:(e,t,n)=>{let r=e.conversationId||n?.conversationId;r&&o.setQueryData([a.messages,r],t=>t?[...t,e]:[e]),s?.(e,t,n)},...u};return t(d)},l=new Set([`http:`,`https:`,`mailto:`,`tel:`]),u=e=>{let t=e.trim();if(!t)return!1;if(t.startsWith(`/`)||t.startsWith(`#`)||t.startsWith(`.`))return!0;try{return l.has(new URL(t).protocol)}catch{return!1}},d=`
 /* GitHub Markdown CSS - Light theme base */
 .markdown-body {
   -ms-text-size-adjust: 100%;
@@ -212,19 +212,19 @@ const isSafeUrl = (url) => {
   if (!trimmed) return false;
   if (trimmed.startsWith('/') || trimmed.startsWith('#') || trimmed.startsWith('.')) return true;
   try { return SAFE_PROTOCOLS.has(new URL(trimmed).protocol); } catch(e) { return false; }
-};`;function g(e){let t=e?n:i,r=(e,n)=>{let r=t[e]?.trim().split(/\s+/).map(Number);return r?.length!==3||r.some(Number.isNaN)?n:`#${r.map(e=>e.toString(16).padStart(2,`0`)).join(``)}`},a=r(`rgb-surface-primary`,e?`#000000`:`#ffffff`),o=r(`rgb-text-primary`,e?`#ffffff`:`#000000`),s=r(`rgb-link`,e?`#8cc8ff`:`#0000cc`),c=r(`rgb-border-medium`,o);return`
-.markdown-body { color: ${o}; background-color: ${a}; }
-body { background-color: ${a}; }
+};`;function g(e){let t=e?n:o,r=(e,n)=>{let r=t[e]?.trim().split(/\s+/).map(Number);return r?.length!==3||r.some(Number.isNaN)?n:`#${r.map(e=>e.toString(16).padStart(2,`0`)).join(``)}`},i=r(`rgb-surface-primary`,e?`#000000`:`#ffffff`),a=r(`rgb-text-primary`,e?`#ffffff`:`#000000`),s=r(`rgb-link`,e?`#8cc8ff`:`#0000cc`),c=r(`rgb-border-medium`,a);return`
+.markdown-body { color: ${a}; background-color: ${i}; }
+body { background-color: ${i}; }
 .markdown-body h1, .markdown-body h2 { border-bottom-color: ${c}; }
 .markdown-body a, .markdown-body a:hover { color: ${s}; text-decoration: underline; }
 .markdown-body table th, .markdown-body table td { border-color: ${c}; }
-.markdown-body table thead { background-color: ${a}; }
-.markdown-body blockquote { border-left-color: ${c}; color: ${o}; }
+.markdown-body table thead { background-color: ${i}; }
+.markdown-body blockquote { border-left-color: ${c}; color: ${a}; }
 .markdown-body hr { background-color: ${c}; }
-.markdown-body code, .markdown-body pre { color: ${o}; background-color: ${r(`rgb-surface-secondary`,a)}; }
+.markdown-body code, .markdown-body pre { color: ${a}; background-color: ${r(`rgb-surface-secondary`,i)}; }
 .markdown-body pre { border: 1px solid ${c}; }
-::-webkit-scrollbar-thumb { background-color: ${o}; }
-* { scrollbar-color: ${o} ${a}; }
+::-webkit-scrollbar-thumb { background-color: ${a}; }
+* { scrollbar-color: ${a} ${i}; }
 .markdown-error { color: ${r(`rgb-text-destructive`,e?`#ff8f8f`:`#a10000`)}; }
 `}function _(e,t=``){return`<!DOCTYPE html>
 <html lang="en">

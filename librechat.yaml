@@ -82,3 +82,22 @@ endpoints:
       titleConvo: true
       titleModel: "deepseek-v4-flash"
       modelDisplayLabel: "OpenCode Zen"
+
+    - name: "Phoenix Grove"
+      apiKey: "${PGSGROVE_API_KEY:-user_provided}"
+      baseURL: "${PGSGROVE_BASE_URL:-https://api.pgsgrove.com/v1}"
+      # The gateway's own identity; the model catalog is public, so the list
+      # populates before a key is set.
+      headers:
+        x-source: "librechat"
+        User-Agent: "librechat"
+      models:
+        fetch: true
+        # Fallback only: the live catalog from /v1/models replaces it, and its
+        # context windows, output ceilings and modalities are ingested into the
+        # endpoint token config.
+        default:
+          - "deepseek-v4.1-flash"
+      titleConvo: true
+      titleModel: "glm-5.3-flash"
+      modelDisplayLabel: "Phoenix Grove"

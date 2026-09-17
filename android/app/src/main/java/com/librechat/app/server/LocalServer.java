@@ -54,9 +54,20 @@ public class LocalServer extends NanoHTTPD {
     private volatile JSONArray cachedDevPassModels = getDefaultDevPassModels();
     private volatile JSONArray cachedOpenCodeGoModels = getDefaultOpenCodeGoModels();
     private volatile JSONArray cachedOpenCodeZenModels = getDefaultOpenCodeZenModels();
+    private volatile JSONArray cachedPhoenixGroveModels = getDefaultPhoenixGroveModels();
+    /** Per-model metadata learned from the Phoenix Grove catalog (context window, output
+     *  ceiling, image input), keyed by model id. */
+    private volatile JSONObject phoenixGroveModelInfo = new JSONObject();
     private volatile boolean isFetchingModels = false;
     private volatile boolean modelsLoaded = false;
     private long lastModelsFetchTime = 0;
+
+    private static JSONArray getDefaultPhoenixGroveModels() {
+        JSONArray arr = new JSONArray();
+        arr.put("deepseek-v4.1-flash");
+        arr.put("glm-5.3");
+        return arr;
+    }
 
     private static JSONArray getDefaultOpenCodeGoModels() {
         JSONArray arr = new JSONArray();
@@ -980,11 +991,15 @@ public class LocalServer extends NanoHTTPD {
             String devpass = dbHelper.getSetting("models_devpass", "");
             String go = dbHelper.getSetting("models_go", "");
             String zen = dbHelper.getSetting("models_zen", "");
+            String grove = dbHelper.getSetting("models_phoenix_grove", "");
+            String groveInfo = dbHelper.getSetting("modelinfo_phoenix_grove", "");
             if (!gateway.isEmpty()) cachedLlmGatewayModels = new JSONArray(gateway);
             if (!devpass.isEmpty()) cachedDevPassModels = new JSONArray(devpass);
             if (!go.isEmpty()) cachedOpenCodeGoModels = new JSONArray(go);
             if (!zen.isEmpty()) cachedOpenCodeZenModels = new JSONArray(zen);
-            modelsLoaded = !gateway.isEmpty() || !go.isEmpty() || !zen.isEmpty();
+            if (!grove.isEmpty()) cachedPhoenixGroveModels = new JSONArray(grove);
+            if (!groveInfo.isEmpty()) phoenixGroveModelInfo = new JSONObject(groveInfo);
+            modelsLoaded = !gateway.isEmpty() || !go.isEmpty() || !zen.isEmpty() || !grove.isEmpty();
         } catch (Throwable ignored) {
         }
     }
@@ -1084,6 +1099,12 @@ public class LocalServer extends NanoHTTPD {
             opencodeZen.put("modelDisplayLabel", "OpenCode Zen");
             endpoints.put("OpenCode Zen", opencodeZen);
 
+            JSONObject phoenixGrove = new JSONObject();
+            phoenixGrove.put("type", "custom");
+            phoenixGrove.put("userProvide", true);
+            phoenixGrove.put("modelDisplayLabel", "Phoenix Grove");
+            endpoints.put("Phoenix Grove", phoenixGrove);
+
             config.put("endpoints", endpoints);
 
             return newFixedLengthResponse(Response.Status.OK, "application/json", config.toString());
@@ -1162,6 +1183,12 @@ public class LocalServer extends NanoHTTPD {
             opencodeZen.put("modelDisplayLabel", "OpenCode Zen");
             endpoints.put("OpenCode Zen", opencodeZen);
 
+            JSONObject phoenixGrove = new JSONObject();
+            phoenixGrove.put("type", "custom");
+            phoenixGrove.put("userProvide", true);
+            phoenixGrove.put("modelDisplayLabel", "Phoenix Grove");
+            endpoints.put("Phoenix Grove", phoenixGrove);
+
             return newFixedLengthResponse(Response.Status.OK, "application/json", endpoints.toString());
         }
 
@@ -1173,7 +1200,7 @@ public class LocalServer extends NanoHTTPD {
             java.util.LinkedHashSet<String> all = new java.util.LinkedHashSet<>();
             for (JSONArray list : new JSONArray[]{
                     cachedOpenCodeGoModels, cachedOpenCodeZenModels,
-                    cachedLlmGatewayModels, cachedDevPassModels}) {
+                    cachedLlmGatewayModels, cachedDevPassModels, cachedPhoenixGroveModels}) {
                 for (int i = 0; i < list.length(); i++) {
                     all.add(list.optString(i));
                 }
@@ -1190,6 +1217,32 @@ public class LocalServer extends NanoHTTPD {
             tokenConfig.put("OpenCode Zen", perModel);
             tokenConfig.put("LLM Gateway", perModel);
             tokenConfig.put("DevPass", perModel);
+
+            /** Phoenix Grove reports its own context windows, output ceilings and image input
+             *  in the catalog; the tracker and the image gate read them from here instead of
+             *  the estimator. */
+            JSONObject grovePerModel = new JSONObject();
+            for (int i = 0; i < cachedPhoenixGroveModels.length(); i++) {
+                String m = cachedPhoenixGroveModels.optString(i);
+                if (m.isEmpty()) {
+                    continue;
+                }
+                JSONObject cfg = new JSONObject();
+                JSONObject info = phoenixGroveModelInfo.optJSONObject(m);
+                int context = info != null ? info.optInt("context", 0) : 0;
+                cfg.put("context", context > 0 ? context : estimateContextWindow(m));
+                if (info != null) {
+                    int output = info.optInt("output", 0);
+                    if (output > 0) {
+                        cfg.put("output", output);
+                    }
+                    if (info.has("vision")) {
+                        cfg.put("vision", info.optBoolean("vision"));
+                    }
+                }
+                grovePerModel.put(m, cfg);
+            }
+            tokenConfig.put("Phoenix Grove", grovePerModel);
             return newFixedLengthResponse(Response.Status.OK, "application/json", tokenConfig.toString());
         }
 
@@ -1242,6 +1295,7 @@ public class LocalServer extends NanoHTTPD {
             modelsObj.put("DevPass", cachedDevPassModels);
             modelsObj.put("OpenCode Go", cachedOpenCodeGoModels);
             modelsObj.put("OpenCode Zen", cachedOpenCodeZenModels);
+            modelsObj.put("Phoenix Grove", cachedPhoenixGroveModels);
             return newFixedLengthResponse(Response.Status.OK, "application/json", modelsObj.toString());
         }
 
@@ -2597,15 +2651,75 @@ public class LocalServer extends NanoHTTPD {
                             Log.w(TAG, "Failed to fetch OpenCode Zen models", e);
                         }
 
+                        /** Phoenix Grove serves its catalog publicly, so the list and its
+                         *  metadata populate before any key is entered. */
+                        try {
+                            Request groveReq = new Request.Builder()
+                                    .url("https://api.pgsgrove.com/v1/models")
+                                    .addHeader("x-source", "librechat")
+                                    .addHeader("User-Agent", "librechat")
+                                    .get()
+                                    .build();
+                            try (okhttp3.Response groveResp = modelFetchClient.newCall(groveReq).execute()) {
+                                if (groveResp.isSuccessful() && groveResp.body() != null) {
+                                    JSONObject groveJson = new JSONObject(groveResp.body().string());
+                                    JSONArray groveData = groveJson.optJSONArray("data");
+                                    if (groveData != null && groveData.length() > 0) {
+                                        JSONArray groveList = new JSONArray();
+                                        JSONObject groveInfo = new JSONObject();
+                                        for (int i = 0; i < groveData.length(); i++) {
+                                            JSONObject m = groveData.getJSONObject(i);
+                                            String id = m.optString("id", "").trim();
+                                            if (id.isEmpty() || !"chat".equals(m.optString("type", "chat"))) {
+                                                continue;
+                                            }
+                                            groveList.put(id);
+                                            JSONObject info = new JSONObject();
+                                            int context = m.optInt("context_window", 0);
+                                            if (context > 0) {
+                                                info.put("context", context);
+                                            }
+                                            int output = m.optInt("max_output_tokens", 0);
+                                            if (output > 0) {
+                                                info.put("output", output);
+                                            }
+                                            JSONObject modalities = m.optJSONObject("modalities");
+                                            JSONArray input = modalities != null ? modalities.optJSONArray("input") : null;
+                                            if (input != null) {
+                                                boolean vision = false;
+                                                for (int j = 0; j < input.length(); j++) {
+                                                    if ("image".equals(input.optString(j))) {
+                                                        vision = true;
+                                                        break;
+                                                    }
+                                                }
+                                                info.put("vision", vision);
+                                            }
+                                            groveInfo.put(id, info);
+                                        }
+                                        if (groveList.length() > 0) {
+                                            cachedPhoenixGroveModels = groveList;
+                                            phoenixGroveModelInfo = groveInfo;
+                                            Log.i(TAG, "Indexed " + groveList.length() + " Phoenix Grove models");
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            Log.w(TAG, "Failed to fetch Phoenix Grove models", e);
+                        }
+
                         modelsLoaded = true;
                         try {
                             dbHelper.setSetting("models_llm_gateway", gatewayList.toString());
                             dbHelper.setSetting("models_devpass", new JSONArray(new java.util.ArrayList<>(devPassSet)).toString());
                             dbHelper.setSetting("models_go", cachedOpenCodeGoModels.toString());
                             dbHelper.setSetting("models_zen", cachedOpenCodeZenModels.toString());
+                            dbHelper.setSetting("models_phoenix_grove", cachedPhoenixGroveModels.toString());
+                            dbHelper.setSetting("modelinfo_phoenix_grove", phoenixGroveModelInfo.toString());
                         } catch (Exception ignored) {
                         }
-                        Log.i(TAG, "Indexed models: " + gatewayList.length() + " LLM Gateway models, " + devPassSet.size() + " DevPass models, " + cachedOpenCodeGoModels.length() + " Go models, " + cachedOpenCodeZenModels.length() + " Zen models");
+                        Log.i(TAG, "Indexed models: " + gatewayList.length() + " LLM Gateway models, " + devPassSet.size() + " DevPass models, " + cachedOpenCodeGoModels.length() + " Go models, " + cachedOpenCodeZenModels.length() + " Zen models, " + cachedPhoenixGroveModels.length() + " Phoenix Grove models");
                     }
                 }
             }

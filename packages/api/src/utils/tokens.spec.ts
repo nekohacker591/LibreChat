@@ -1,6 +1,6 @@
 import { EModelEndpoint } from 'librechat-data-provider';
 import type { EndpointTokenConfig } from '~/types';
-import { getModelMaxTokens, getModelMaxOutputTokens } from './tokens';
+import { getModelMaxTokens, getModelMaxOutputTokens, processModelData } from './tokens';
 
 describe('getModelMaxTokens partial-override fallback', () => {
   const partialOverride: EndpointTokenConfig = {
@@ -47,6 +47,12 @@ describe('getModelMaxOutputTokens partial-override fallback', () => {
     const builtin = getModelMaxOutputTokens('gpt-4o', EModelEndpoint.openAI);
     expect(fallback).toBe(builtin);
     expect(fallback).toBeGreaterThan(0);
+  });
+
+  it('reads the output ceiling of a listed model, not its context window', () => {
+    expect(getModelMaxOutputTokens('custom-model', EModelEndpoint.openAI, partialOverride)).toBe(
+      4096,
+    );
   });
 });
 
@@ -246,5 +252,67 @@ describe('OpenCode Go/Zen catalog coverage', () => {
       expect(output).toBeGreaterThan(0);
       expect(output).toBeLessThan(context);
     }
+  });
+});
+
+describe('processModelData catalog dialects', () => {
+  /** Phoenix Grove and other OpenAI-compatible gateways report windows, ceilings,
+   *  modalities and per-million prices; OpenRouter reports the other dialect. */
+  it('ingests an OpenAI-compatible catalog with capabilities and per-million prices', () => {
+    const config = processModelData({
+      data: [
+        {
+          id: 'glm-5.3',
+          type: 'chat',
+          context_window: 1048576,
+          max_output_tokens: 32768,
+          modalities: { input: ['text'], output: ['text'] },
+          pricing: { input_per_m: 1.6, output_per_m: 5.2, cached_input_per_m: 0.32 },
+        },
+        {
+          id: 'mimo-v2.5',
+          type: 'chat',
+          context_window: 1048576,
+          max_output_tokens: 32768,
+          modalities: { input: ['text', 'image'], output: ['text'] },
+          pricing: { input_per_m: 0.17, output_per_m: 0.85 },
+        },
+        { id: 'kokoro-82m', type: 'tts', context_window: 0, modalities: { input: ['text'] } },
+        { id: 'embeddinggemma-300m', type: 'embedding', context_window: 2048 },
+      ],
+    });
+
+    expect(config['glm-5.3']).toEqual({
+      context: 1048576,
+      prompt: 1.6,
+      completion: 5.2,
+      cacheRead: 0.32,
+      output: 32768,
+      vision: false,
+    });
+    expect(config['mimo-v2.5'].vision).toBe(true);
+    expect(config['glm-5.3'].vision).toBe(false);
+    expect(config['kokoro-82m']).toBeUndefined();
+    expect(config['embeddinggemma-300m']).toEqual({ context: 2048 });
+  });
+
+  it('keeps the OpenRouter dialect working (per-token strings and context_length)', () => {
+    const config = processModelData({
+      data: [
+        {
+          id: 'openrouter/auto',
+          context_length: 2000000,
+          pricing: { prompt: '0.00001', completion: '0.00003' },
+          top_provider: { max_completion_tokens: 8192 },
+        },
+      ],
+    });
+
+    expect(config['openrouter/auto']).toEqual({
+      context: 2000000,
+      prompt: 10,
+      completion: 30,
+      output: 8192,
+    });
   });
 });

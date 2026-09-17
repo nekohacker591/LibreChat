@@ -71,6 +71,14 @@ import {
   MAX_PRIMED_SKILLS_PER_TURN,
 } from './skills';
 import {
+  optionalChainWithEmptyCheck,
+  extractLibreChatParams,
+  getModelMaxTokens,
+  getSafeErrorMetadata,
+  getModelMaxOutputTokens,
+  getThreadData,
+} from '~/utils';
+import {
   normalizeStatefulCodeEnvironment,
   resolveCodeExecutionContext,
   type CodeEnvironmentConfig,
@@ -81,13 +89,6 @@ import {
   isContentTraversalProtected,
   isContentTraversalLimitError,
 } from '../protection/adapters/nested';
-import {
-  optionalChainWithEmptyCheck,
-  extractLibreChatParams,
-  getSafeErrorMetadata,
-  getModelMaxTokens,
-  getThreadData,
-} from '~/utils';
 import {
   isCodeFileToolName,
   registerCodeExecutionTools,
@@ -1337,6 +1338,13 @@ export async function initializeAgent(
   const maxOutputTokens = optionalChainWithEmptyCheck(
     llmConfig?.maxOutputTokens as number | undefined,
     llmConfig?.maxTokens as number | undefined,
+    /** A catalog that reports its output ceiling (Phoenix Grove's `max_output_tokens`) reserves
+     *  that much context instead of hoping the provider caps itself. */
+    getModelMaxOutputTokens(
+      tokensModel ?? '',
+      providerEndpointMap[overrideProvider as keyof typeof providerEndpointMap],
+      options.endpointTokenConfig,
+    ),
     0,
   );
   const agentMaxContextTokens = optionalChainWithEmptyCheck(

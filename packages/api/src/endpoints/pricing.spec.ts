@@ -115,4 +115,25 @@ describe('buildTokenConfigMap', () => {
     const map = buildTokenConfigMap({ modelsConfig: { [EModelEndpoint.agents]: [] } }, deps);
     expect(map[EModelEndpoint.agents]).toBeUndefined();
   });
+
+  it('carries catalog capabilities (output ceiling, vision) without pricing', () => {
+    const override: EndpointTokenConfig = {
+      'glm-5.3': { context: 1048576, output: 32768, vision: false },
+      'mimo-v2.5': { context: 1048576, output: 32768, vision: true },
+    };
+    const map = buildTokenConfigMap(
+      {
+        modelsConfig: { 'Phoenix Grove': ['glm-5.3', 'mimo-v2.5'] },
+        endpointTokenConfigs: { 'Phoenix Grove': override },
+      },
+      deps,
+    );
+
+    expect(map['Phoenix Grove']['glm-5.3']).toEqual({
+      context: 1048576,
+      output: 32768,
+      vision: false,
+    });
+    expect(map['Phoenix Grove']['mimo-v2.5'].vision).toBe(true);
+  });
 });

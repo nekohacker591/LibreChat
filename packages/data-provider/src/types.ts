@@ -688,6 +688,10 @@ export type TModelTokenomics = {
   completion?: number;
   cacheWrite?: number;
   cacheRead?: number;
+  /** Max output ceiling in tokens, when the catalog reports one. */
+  output?: number;
+  /** Whether the model accepts image input, when the catalog reports modalities. */
+  vision?: boolean;
 };
 
 /** endpoint → model → resolved tokenomics, from GET /api/endpoints/token-config */

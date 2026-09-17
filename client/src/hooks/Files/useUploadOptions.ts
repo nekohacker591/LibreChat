@@ -13,6 +13,8 @@ import useAgentToolPermissions from '~/hooks/Agents/useAgentToolPermissions';
 import useAgentCapabilities from '~/hooks/Agents/useAgentCapabilities';
 import { getViableUploadOptions, isUnifiedUploadMode } from '~/utils';
 import useGetAgentsConfig from '~/hooks/Agents/useGetAgentsConfig';
+import useTokenLimits from '~/hooks/Chat/useTokenLimits';
+import { useChatContext } from '~/Providers/ChatContext';
 import { useGetFileConfig } from '~/data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
 import { useDragDropContext } from '~/Providers';
@@ -25,6 +27,9 @@ import { isEphemeralAgent } from '~/common';
  */
 export default function useUploadOptions() {
   const { conversationId, agentId, endpoint, endpointType, useResponsesApi } = useDragDropContext();
+  const { conversation } = useChatContext();
+  /** `undefined` until a fetched catalog reports modalities; only an explicit `false` blocks. */
+  const modelAcceptsImages = useTokenLimits(conversation).rates?.vision;
   const { agentsConfig } = useGetAgentsConfig();
   const capabilities = useAgentCapabilities(agentsConfig?.capabilities ?? defaultAgentCapabilities);
   const ephemeralAgent = useRecoilValue(
@@ -76,6 +81,7 @@ export default function useUploadOptions() {
         endpoint,
         endpointType,
         useResponsesApi,
+        modelAcceptsImages,
         fileSearchEnabled: capabilities.fileSearchEnabled,
         codeEnabled: capabilities.codeEnabled,
         contextEnabled: capabilities.contextEnabled,
@@ -89,6 +95,7 @@ export default function useUploadOptions() {
       endpoint,
       endpointType,
       useResponsesApi,
+      modelAcceptsImages,
       capabilities.fileSearchEnabled,
       capabilities.codeEnabled,
       capabilities.contextEnabled,

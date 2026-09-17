@@ -465,7 +465,7 @@ const opencodeModels = {
   'mimo-v2.5': 1000000,
   'mimo-v2.5-pro': 1048576,
   'mimo-v2.5-free': 200000,
-  'hy3': 256000,
+  hy3: 256000,
   'hy3-free': 256000,
   'hy3-preview': 256000,
   'hy3-preview-free': 256000,
@@ -606,7 +606,7 @@ const opencodeMaxOutputs = {
   'mimo-v2.5': 128000,
   'mimo-v2.5-pro': 128000,
   'mimo-v2.5-free': 32000,
-  'hy3': 128000,
+  hy3: 128000,
   'hy3-free': 64000,
   'hy3-preview': 64000,
   'hy3-preview-free': 64000,
@@ -702,8 +702,14 @@ export function getModelTokenValue(
     return value;
   }
 
-  if (value?.context) {
-    return value.context;
+  /** The exact-match entry answers only the dimension asked for: an output lookup must not
+   *  read the context window off an entry that also carries one. A missing dimension falls
+   *  through to the pattern map like any other partial override. */
+  if (value != null) {
+    const exactValue = value[key];
+    if (typeof exactValue === 'number') {
+      return exactValue;
+    }
   }
 
   const matchedPattern = findMatchingPattern(modelName, tokensMap);
@@ -828,92 +834,78 @@ export function matchModelName(
   return matchedPattern || modelName;
 }
 
-export const modelSchema: z.ZodObject<
-  {
-    id: z.ZodString;
-    pricing: z.ZodObject<
-      {
-        prompt: z.ZodString;
-        completion: z.ZodString;
-      },
-      'strip',
-      z.ZodTypeAny,
-      {
-        prompt: string;
-        completion: string;
-      },
-      {
-        prompt: string;
-        completion: string;
-      }
-    >;
-    context_length: z.ZodNumber;
-  },
-  'strip'
-> = z.object({
+/** One model row from an OpenAI-compatible catalog. Two dialects are accepted: OpenRouter's
+ *  (`context_length`, per-token price strings) and the plainer one gateways such as Phoenix
+ *  Grove serve (`context_window`, `max_output_tokens`, per-million price numbers, and
+ *  `modalities` naming image input). */
+export type CatalogModel = {
+  id: string;
+  /** The catalog's kind (`chat`, `tts`, `embedding`, ...). Ignored here; the fetch path
+   *  keeps only chat rows for the model menu. */
+  type?: string;
+  pricing?: {
+    /** OpenRouter: USD per token, as strings. */
+    prompt?: string;
+    completion?: string;
+    /** OpenAI-compatible: USD per million tokens. */
+    input_per_m?: number;
+    output_per_m?: number;
+    cached_input_per_m?: number;
+  };
+  /** OpenRouter context window. */
+  context_length?: number;
+  /** OpenAI-compatible context window. */
+  context_window?: number;
+  /** OpenAI-compatible max output ceiling. */
+  max_output_tokens?: number;
+  /** OpenRouter max output ceiling. */
+  top_provider?: {
+    max_completion_tokens?: number;
+  };
+  /** Which input kinds the model accepts; `image` marks image input. */
+  modalities?: {
+    input?: string[];
+    output?: string[];
+  };
+};
+
+export const modelSchema: z.ZodType<CatalogModel> = z.object({
   id: z.string(),
-  pricing: z.object({
-    prompt: z.string(),
-    completion: z.string(),
-  }),
-  context_length: z.number(),
+  type: z.string().optional(),
+  pricing: z
+    .object({
+      prompt: z.string().optional(),
+      completion: z.string().optional(),
+      input_per_m: z.number().optional(),
+      output_per_m: z.number().optional(),
+      cached_input_per_m: z.number().optional(),
+    })
+    .optional(),
+  context_length: z.number().optional(),
+  context_window: z.number().optional(),
+  max_output_tokens: z.number().optional(),
+  top_provider: z
+    .object({
+      max_completion_tokens: z.number().optional(),
+    })
+    .optional(),
+  modalities: z
+    .object({
+      input: z.array(z.string()).optional(),
+      output: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 
-export const inputSchema: z.ZodObject<
-  {
-    data: z.ZodArray<
-      z.ZodObject<
-        {
-          id: z.ZodString;
-          pricing: z.ZodObject<
-            {
-              prompt: z.ZodString;
-              completion: z.ZodString;
-            },
-            'strip',
-            z.ZodTypeAny,
-            {
-              prompt: string;
-              completion: string;
-            },
-            {
-              prompt: string;
-              completion: string;
-            }
-          >;
-          context_length: z.ZodNumber;
-        },
-        'strip',
-        z.ZodTypeAny,
-        {
-          id: string;
-          pricing: {
-            prompt: string;
-            completion: string;
-          };
-          context_length: number;
-        },
-        {
-          id: string;
-          pricing: {
-            prompt: string;
-            completion: string;
-          };
-          context_length: number;
-        }
-      >,
-      'many'
-    >;
-  },
-  'strip'
-> = z.object({
+export const inputSchema: z.ZodType<{ data: CatalogModel[] }> = z.object({
   data: z.array(modelSchema),
 });
 
 /**
- * Processes a list of model data from an API and organizes it into structured data based on URL and specifics of rates and context.
- * @param {{ data: Array<z.infer<typeof modelSchema>> }} input The input object containing base URL and data fetched from the API.
- * @returns {EndpointTokenConfig} The processed model data.
+ * Normalizes a catalog response into per-model token configs. Rows without a
+ * usable context window (TTS voices, embedding models) are skipped, and an
+ * entry keeps only the fields the provider actually reported, so a partial
+ * catalog cannot claim a zero price or window it never stated.
  */
 export function processModelData(input: z.infer<typeof inputSchema>): EndpointTokenConfig {
   const validationResult = inputSchema.safeParse(input);
@@ -921,26 +913,49 @@ export function processModelData(input: z.infer<typeof inputSchema>): EndpointTo
     throw new Error('Invalid input data');
   }
   const { data } = validationResult.data;
-
-  /** @type {EndpointTokenConfig} */
   const tokenConfig: EndpointTokenConfig = {};
 
   for (const model of data) {
-    const modelKey = model.id;
-    if (modelKey === 'openrouter/auto') {
-      model.pricing = {
-        prompt: '0.00001',
-        completion: '0.00003',
-      };
+    const context = model.context_length ?? model.context_window;
+    if (typeof context !== 'number' || context <= 0) {
+      continue;
     }
-    const prompt = parseFloat(model.pricing.prompt) * 1000000;
-    const completion = parseFloat(model.pricing.completion) * 1000000;
 
-    tokenConfig[modelKey] = {
-      prompt,
-      completion,
-      context: model.context_length,
-    };
+    const entry: TokenConfig = { context };
+
+    if (model.id === 'openrouter/auto' && model.pricing == null) {
+      entry.prompt = 10;
+      entry.completion = 30;
+    } else if (model.pricing != null) {
+      const { pricing } = model;
+      const prompt =
+        pricing.prompt != null ? parseFloat(pricing.prompt) * 1000000 : pricing.input_per_m;
+      const completion =
+        pricing.completion != null
+          ? parseFloat(pricing.completion) * 1000000
+          : pricing.output_per_m;
+      if (prompt != null && Number.isFinite(prompt)) {
+        entry.prompt = prompt;
+      }
+      if (completion != null && Number.isFinite(completion)) {
+        entry.completion = completion;
+      }
+      if (typeof pricing.cached_input_per_m === 'number') {
+        entry.cacheRead = pricing.cached_input_per_m;
+      }
+    }
+
+    const output = model.max_output_tokens ?? model.top_provider?.max_completion_tokens;
+    if (typeof output === 'number' && output > 0) {
+      entry.output = output;
+    }
+
+    const modalities = model.modalities?.input;
+    if (Array.isArray(modalities) && modalities.length > 0) {
+      entry.vision = modalities.includes('image');
+    }
+
+    tokenConfig[model.id] = entry;
   }
 
   return tokenConfig;

@@ -22,3 +22,15 @@ if (typeof globalThis.File === 'undefined') {
     // real environment issue.
   }
 }
+
+/**
+ * Node 26 removed the long-deprecated `buffer.SlowBuffer`, which the
+ * `jsonwebtoken` chain (`jws` -> `jwa` -> `buffer-equal-constant-time`) reads
+ * at module scope. Any suite that imports `@librechat/data-schemas` loads that
+ * chain, so restore the constructor before the first require. Production runs
+ * the same shim from `api/server/utils/slowBufferCompat.js`.
+ */
+const bufferModule = require('node:buffer');
+if (bufferModule.SlowBuffer == null) {
+  bufferModule.SlowBuffer = bufferModule.Buffer;
+}

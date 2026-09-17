@@ -43,6 +43,7 @@ import {
 import { useSharePointFileHandlingNoChatContext } from '~/hooks/Files/useSharePointFileHandling';
 import { useShortcutAriaKey, useShortcutHint } from '~/hooks/useKeyboardShortcuts';
 import { SharePointPickerDialog } from '~/components/SharePoint';
+import useTokenLimits from '~/hooks/Chat/useTokenLimits';
 import { useGetStartupConfig } from '~/data-provider';
 import { ephemeralAgentByConvoId } from '~/store';
 import { MenuItemProps } from '~/common';
@@ -145,6 +146,10 @@ const AttachFileMenu = ({
     ephemeralAgent,
   );
 
+  /** `undefined` until a fetched catalog reports modalities; only an explicit `false` scopes
+   *  the picker to documents. */
+  const modelAcceptsImages = useTokenLimits(conversation).rates?.vision;
+
   const handleUploadClick = useCallback(
     (fileType?: FileUploadType) => {
       if (!inputRef.current) {
@@ -239,7 +244,7 @@ const AttachFileMenu = ({
           label: localize('com_ui_upload_provider'),
           onClick: () => {
             setToolResource(undefined);
-            let fileType: Exclude<FileUploadType, 'image' | 'document'> = 'image_document';
+            let fileType: FileUploadType = 'image_document';
             if (currentProvider === Providers.GOOGLE || currentProvider === Providers.OPENROUTER) {
               fileType = 'image_document_video_audio';
             } else if (
@@ -252,6 +257,11 @@ const AttachFileMenu = ({
               isExplicitMimeConfig(endpointFileConfig?.supportedMimeTypes)
             ) {
               fileType = 'image_document_video_audio_configured';
+            }
+            /** A text-only model must not be offered images the upload gate would refuse;
+             *  documents still attach. */
+            if (modelAcceptsImages === false) {
+              fileType = 'document';
             }
             onAction(fileType);
           },
@@ -342,6 +352,7 @@ const AttachFileMenu = ({
     endpointFileConfig?.supportedMimeTypes,
     codeAllowedByAgent,
     fileSearchAllowedByAgent,
+    modelAcceptsImages,
     setIsSharePointDialogOpen,
   ]);
 
